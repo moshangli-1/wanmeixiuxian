@@ -52,4 +52,9 @@ function verifyToken(token) {
   } catch { return null; }
 }
 
-module.exports = { hashPassword, makeSalt, verifyPassword, signToken, verifyToken };
+// 密钥指纹（诊断用，不泄露密钥本身）
+function secretFingerprint() {
+  return crypto.createHash('sha256').update(SECRET).digest('hex').slice(0, 8);
+}
+
+module.exports = { hashPassword, makeSalt, verifyPassword, signToken, verifyToken, secretFingerprint };

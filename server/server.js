@@ -61,7 +61,8 @@ async function handleApi(req, res, url) {
   }
 
   // ---- 以下接口需登录 ----
-  const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  // token 三通道：URL 参数 _t → Cookie → Authorization 头（平台反代会注入自己的身份令牌，故头排最低）
+  const token = tokenFrom(req, url);
   const data = auth.verifyToken(token);
   if (!data) return send(res, 401, { error: '请先登录' });
   const uid = data.uid;
@@ -124,6 +125,16 @@ function serveStatic(res, url) {
     res.writeHead(200, { 'Content-Type': MIME[path.extname(full)] || 'application/octet-stream' });
     res.end(buf);
   });
+}
+
+function tokenFrom(req, url) {
+  // 优先级：URL 参数 → Cookie → Authorization 头。
+  // 平台反代会向 Authorization 注入自己的身份令牌，故它只能排最低。
+  const t = url.searchParams.get('_t');
+  if (t) return t;
+  const m = (req.headers.cookie || '').match(/(?:^|;\s*)xx_token=([^;]+)/);
+  if (m) return decodeURIComponent(m[1]);
+  return (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
 }
 
 const server = http.createServer(async (req, res) => {

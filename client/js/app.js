@@ -27,8 +27,16 @@ function fmtTime(ts) {
 
 // ---------- API ----------
 const S = { token: localStorage.getItem('xx_token') || '', st: null, tab: 'cultivate', zoneSel: 0, lastAction: null };
+function saveToken(tok) {
+  S.token = tok;
+  localStorage.setItem('xx_token', tok);
+  // Cookie 备用通道（部分反向代理会剥 Authorization 头）
+  document.cookie = 'xx_token=' + encodeURIComponent(tok) + '; path=/; max-age=604800; SameSite=Lax';
+}
 async function api(path, body) {
-  const res = await fetch(path, {
+  // token 随 URL 参数发送（最通用），Authorization 头同时保留
+  const qs = S.token ? (path.includes('?') ? '&' : '?') + '_t=' + encodeURIComponent(S.token) : '';
+  const res = await fetch(path + qs, {
     method: body ? 'POST' : 'GET',
     headers: {
       'Content-Type': 'application/json',
@@ -58,8 +66,7 @@ $('#login-form').addEventListener('submit', async (e) => {
   try {
     const path = isReg ? '/api/register' : '/api/login';
     const data = await api(path, { username: f.username.value.trim(), password: f.password.value });
-    S.token = data.token;
-    localStorage.setItem('xx_token', data.token);
+    saveToken(data.token);
     await enterGame(isReg);
   } catch (err) {
     $('#login-err').textContent = err.message;
