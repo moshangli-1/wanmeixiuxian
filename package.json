@@ -1,0 +1,14 @@
+{
+  "name": "wanmei-xiuxian",
+  "version": "1.0.0",
+  "description": "《完美修仙》—— 修仙文字挂机游戏（Web / Windows / macOS / Android）",
+  "main": "desktop/main.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "desktop": "electron .",
+    "desktop:install": "npm install --save-dev electron"
+  },
+  "license": "MIT",
+  "devDependencies": {},
+  "engines": { "node": ">=22.13" }
+}

@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0b0e1a">
+<title>完美修仙</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="assets/icon.png">
+</head>
+<body>
+<div id="bg"><div id="motes"></div></div>
+
+<!-- ============ 登录/注册 ============ -->
+<div id="login-view" class="view">
+  <div class="login-card">
+    <div class="login-title">
+      <h1>完美修仙</h1>
+      <p class="sub">大道争锋 · 我命由我不由天</p>
+    </div>
+    <div class="login-tabs">
+      <button class="ltab active" data-tab="login">登 录</button>
+      <button class="ltab" data-tab="register">开辟道途</button>
+    </div>
+    <form id="login-form">
+      <label>道号<input name="username" placeholder="请输入道号" maxlength="16" autocomplete="username"></label>
+      <label>密码<input name="password" type="password" placeholder="至少 6 位" maxlength="32" autocomplete="current-password"></label>
+      <button type="submit" class="btn primary big" id="login-btn">踏 入 仙 途</button>
+    </form>
+    <p class="login-err" id="login-err"></p>
+  </div>
+  <p class="login-foot">挂机修仙 · 文字演武 · 九境飞升 · 轮回再启</p>
+</div>
+
+<!-- ============ 游戏 ============ -->
+<div id="game-view" class="view" hidden>
+  <header id="topbar">
+    <div class="tb-left">
+      <span class="tb-name" id="hud-name">—</span>
+      <span class="tb-realm" id="hud-realm">—</span>
+    </div>
+    <div class="tb-right">
+      <span class="res" title="灵石">💠 <b id="hud-stones">0</b></span>
+      <span class="res" title="道韵（轮回永久加成）">☯ <b id="hud-dao">0</b></span>
+      <button class="icon-btn" id="btn-audio" title="音乐">♪</button>
+      <button class="icon-btn" id="btn-logout" title="退出">⎋</button>
+    </div>
+  </header>
+
+  <nav id="tabs">
+    <button class="tab active" data-tab="cultivate">修炼</button>
+    <button class="tab" data-tab="combat">斗法</button>
+    <button class="tab" data-tab="alchemy">丹器</button>
+    <button class="tab" data-tab="bag">行囊</button>
+    <button class="tab" data-tab="technique">功法</button>
+    <button class="tab" data-tab="sect">宗门</button>
+    <button class="tab" data-tab="rank">天道榜</button>
+  </nav>
+
+  <div id="layout">
+    <main id="panels">
+      <section class="panel active" id="panel-cultivate"></section>
+      <section class="panel" id="panel-combat"></section>
+      <section class="panel" id="panel-alchemy"></section>
+      <section class="panel" id="panel-bag"></section>
+      <section class="panel" id="panel-technique"></section>
+      <section class="panel" id="panel-sect"></section>
+      <section class="panel" id="panel-rank"></section>
+    </main>
+    <aside id="log-panel">
+      <div class="log-head">— 道 记 —</div>
+      <div id="log-body"></div>
+    </aside>
+  </div>
+</div>
+
+<!-- ============ 奇遇弹窗 ============ -->
+<div id="modal" hidden>
+  <div class="modal-box">
+    <h2 id="modal-title"></h2>
+    <p id="modal-text"></p>
+    <div id="modal-choices"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<div id="flash"></div>
+
+<script src="js/audio.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
