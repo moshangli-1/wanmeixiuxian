@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>完美修仙 · 管理端</title>
+<style>
+:root { --gold:#d8b45a; --gold-hi:#f4dd9b; --ink:#e8e3d5; --dim:#9a94b8; --red:#e06c5a; --green:#9fd48a; }
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  min-height:100vh; font-family:'Noto Serif SC','STSong','SimSun',serif; color:var(--ink);
+  background:linear-gradient(180deg,#141a35,#0b0e1a 60%,#070911); display:flex; align-items:center; justify-content:center; padding:20px;
+}
+.card {
+  width:min(760px,96vw); background:rgba(15,19,36,.85); border:1px solid rgba(216,180,90,.22);
+  border-radius:14px; padding:30px; backdrop-filter:blur(10px); box-shadow:0 24px 60px rgba(0,0,0,.5);
+}
+h1 { font-size:24px; text-align:center; letter-spacing:.2em; margin-bottom:6px;
+  background:linear-gradient(180deg,#f7e7b0,#d8b45a 60%,#8a6a24); -webkit-background-clip:text; background-clip:text; color:transparent; }
+.sub { text-align:center; color:var(--dim); font-size:12px; letter-spacing:.3em; margin-bottom:24px; }
+.row { display:flex; gap:10px; }
+input {
+  flex:1; background:rgba(0,0,0,.35); border:1px solid rgba(216,180,90,.25); border-radius:6px;
+  color:var(--ink); padding:11px 13px; font-size:14px; outline:none; font-family:inherit;
+}
+input:focus { border-color:var(--gold); }
+button {
+  background:linear-gradient(180deg,#caa24c,#9a7529); border:1px solid #f0d089; color:#1c1508;
+  padding:10px 20px; border-radius:6px; font-size:14px; cursor:pointer; font-family:inherit; letter-spacing:.1em; font-weight:600;
+}
+button:hover { box-shadow:0 0 16px rgba(216,180,90,.45); }
+button.ghost { background:none; border:1px solid rgba(216,180,90,.3); color:var(--gold); font-weight:400; padding:6px 14px; }
+button.del { background:none; border:1px solid rgba(224,108,90,.5); color:var(--red); font-weight:400; padding:4px 12px; font-size:12px; }
+button.del:hover { box-shadow:0 0 10px rgba(224,108,90,.35); }
+.err { color:var(--red); font-size:13px; min-height:18px; margin-top:12px; text-align:center; }
+.bar { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; color:var(--dim); font-size:13px; letter-spacing:.1em; }
+table { width:100%; border-collapse:collapse; font-size:13.5px; }
+th { text-align:left; color:var(--gold); font-weight:600; letter-spacing:.15em; padding:9px 10px; border-bottom:1px solid rgba(216,180,90,.25); font-size:12.5px; }
+td { padding:9px 10px; border-bottom:1px solid rgba(216,180,90,.09); }
+td.name { color:var(--gold-hi); }
+.tag { border:1px solid rgba(127,212,193,.35); color:#7fd4c1; border-radius:12px; padding:1px 9px; font-size:11.5px; }
+.empty { text-align:center; color:var(--dim); padding:30px 0; font-size:14px; letter-spacing:.2em; }
+.tip { color:var(--dim); font-size:12px; margin-top:16px; line-height:1.9; text-align:center; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>完美修仙 · 管理端</h1>
+  <div class="sub">ACCOUNT ADMINISTRATION</div>
+
+  <div id="login">
+    <div class="row">
+      <input id="key" type="password" placeholder="管理密钥（服务器 admin.key 文件内容）" autocomplete="off">
+      <button onclick="enter()">进 入</button>
+    </div>
+    <p class="err" id="err"></p>
+  </div>
+
+  <div id="panel" hidden>
+    <div class="bar">
+      <span id="count"></span>
+      <span><button class="ghost" onclick="loadList()">刷新</button> <button class="ghost" onclick="logout()">退出</button></span>
+    </div>
+    <table>
+      <thead><tr><th>道号</th><th>境界</th><th>道韵</th><th>转世</th><th>注册时间</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="tip">删除将级联清空该账号的角色/物品/功法/法宝/日志，不可恢复。<br>密钥仅在本次会话内存中保存，关闭页面即失效。</div>
+  </div>
+</div>
+
+<script>
+'use strict';
+const $ = (s) => document.querySelector(s);
+const REALMS = ['炼气','筑基','金丹','元婴','化神','炼虚','合体','大乘','渡劫'];
+const CN = ['一','二','三','四','五','六','七','八','九'];
+let KEY = sessionStorage.getItem('wmxx_admin_key') || '';
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { 'Content-Type': 'application/json', 'x-admin-key': KEY } });
+  const d = await res.json();
+  if (!res.ok) throw new Error(d.error || ('HTTP ' + res.status));
+  return d;
+}
+const realmTxt = (r) => `${REALMS[r.realm] || '?'}${CN[r.layer - 1] || r.layer}层`;
+
+async function loadList() {
+  try {
+    const d = await api('/api/admin/list');
+    sessionStorage.setItem('wmxx_admin_key', KEY);
+    $('#login').style.display = 'none';
+    $('#panel').hidden = false;
+    $('#count').textContent = `共 ${d.count} 个账号`;
+    const tb = $('#rows');
+    if (!d.list.length) { tb.innerHTML = '<tr><td colspan="6" class="empty">天地未开，混沌无账号</td></tr>'; return; }
+    tb.innerHTML = d.list.map((p) => `<tr>
+      <td class="name">${String(p.name).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}</td>
+      <td><span class="tag">${realmTxt(p)}</span></td>
+      <td>${p.dao}</td><td>${p.rebirths}</td>
+      <td>${new Date(p.created_at).toLocaleString('zh-CN')}</td>
+      <td><button class="del" data-n="${String(p.name).replace(/"/g, '&quot;')}">删除</button></td>
+    </tr>`).join('');
+    tb.querySelectorAll('.del').forEach((b) => b.addEventListener('click', () => del(b.dataset.n)));
+  } catch (e) {
+    $('#panel').hidden = true;
+    $('#login').style.display = '';
+    $('#err').textContent = e.message.includes('管理密钥') ? '管理密钥错误，请核对 admin.key 文件内容' : ('加载失败：' + e.message);
+  }
+}
+async function del(name) {
+  if (!confirm(`确定删除「${name}」？该账号全部数据将被清空，不可恢复！`)) return;
+  try { await api('/api/admin/delete', { method: 'POST', body: JSON.stringify({ name }) }); loadList(); }
+  catch (e) { alert('删除失败：' + e.message); }
+}
+function enter() { KEY = $('#key').value.trim(); if (!KEY) { $('#err').textContent = '请输入管理密钥'; return; } $('#err').textContent = ''; loadList(); }
+function logout() { sessionStorage.removeItem('wmxx_admin_key'); KEY = ''; $('#panel').hidden = true; $('#login').style.display = ''; $('#key').value = ''; }
+$('#key').addEventListener('keydown', (e) => { if (e.key === 'Enter') enter(); });
+if (KEY) loadList();
+</script>
+</body>
+</html>
