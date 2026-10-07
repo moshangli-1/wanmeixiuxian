@@ -6,6 +6,7 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { URL } = require('node:url');
 
 const auth = require('./lib/auth');
@@ -58,6 +59,34 @@ async function handleApi(req, res, url) {
       return send(res, 400, { error: '道号或密码有误' });
     }
     return send(res, 200, { token: auth.signToken(user.id) });
+  }
+
+  // ---- 管理接口（运营用，x-admin-key 鉴权，密钥在项目根 admin.key） ----
+  if (route === 'GET /api/admin/list' || route === 'POST /api/admin/delete') {
+    const keyFile = path.join(__dirname, '..', 'admin.key');
+    let expect = '';
+    try { expect = fs.readFileSync(keyFile, 'utf8').trim(); } catch {}
+    const got = (req.headers['x-admin-key'] || '').trim();
+    const okKey = expect.length > 0 && got.length === expect.length &&
+      crypto.timingSafeEqual(Buffer.from(got), Buffer.from(expect));
+    if (!okKey) return send(res, 403, { error: '管理密钥错误' });
+    if (route === 'GET /api/admin/list') {
+      const list = q.listAccounts.all();
+      return send(res, 200, { count: list.length, list });
+    }
+    // 删号：级联清理全部关联数据
+    const { name } = await readBody(req);
+    const user = q.getUserByName.get(String(name || ''));
+    if (!user) return send(res, 404, { error: '账号不存在' });
+    const uid = user.id;
+    q.delPlayer.run(uid);
+    q.delInventory.run(uid);
+    q.delTechniques.run(uid);
+    q.delEquips.run(uid);
+    q.delLogs.run(uid);
+    q.delEvents.run(uid);
+    q.delUser.run(uid);
+    return send(res, 200, { deleted: name, uid });
   }
 
   // ---- 以下接口需登录 ----

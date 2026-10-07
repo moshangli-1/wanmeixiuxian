@@ -111,6 +111,16 @@ const queries = {
   pruneLogs: db.prepare(`DELETE FROM logs WHERE user_id = ? AND id NOT IN
     (SELECT id FROM logs WHERE user_id = ? ORDER BY id DESC LIMIT 200)`),
   addEvent: db.prepare('INSERT INTO events (user_id, ts, type, data) VALUES (?,?,?,?)'),
+  // ---- 管理端 ----
+  listAccounts: db.prepare(`SELECT p.user_id, p.name, p.realm, p.layer, p.dao, p.rebirths, p.created_at
+    FROM players p ORDER BY p.created_at DESC LIMIT 200`),
+  delPlayer: db.prepare('DELETE FROM players WHERE user_id = ?'),
+  delInventory: db.prepare('DELETE FROM inventory WHERE user_id = ?'),
+  delTechniques: db.prepare('DELETE FROM techniques WHERE user_id = ?'),
+  delEquips: db.prepare('DELETE FROM equips WHERE user_id = ?'),
+  delLogs: db.prepare('DELETE FROM logs WHERE user_id = ?'),
+  delEvents: db.prepare('DELETE FROM events WHERE user_id = ?'),
+  delUser: db.prepare('DELETE FROM users WHERE id = ?'),
   // ---- leaderboard ----
   topPlayers: db.prepare('SELECT name, realm, layer, qi, dao, rebirths FROM players ORDER BY realm DESC, layer DESC, qi DESC LIMIT 20'),
 };
