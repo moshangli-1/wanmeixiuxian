@@ -88,6 +88,21 @@ PORT=3000 node server/server.js   # 服务监听 $PORT，默认 3000
 - **数据迁移**：把整个 `data/` 目录（`game.db` + `.secret`）拷到新机即全量迁移，账号、角色、日志全部保留；
 - **安全说明**：`.secret` 是 JWT 签名密钥，删除它等于让全部登录态失效并重新生成；数据库为 SQLite 单文件，无外部服务依赖。
 
+## 🛠 管理端（运营）
+
+项目根目录的 `admin.key`（已被 gitignore 排除，本地持有、随部署进入运行环境）为管理密钥：
+
+```bash
+# 查看全部账号
+curl https://你的域名/api/admin/list -H "x-admin-key: <密钥>"
+
+# 删除账号（级联清理角色/物品/功法/法宝/日志/事件）
+curl -X POST https://你的域名/api/admin/delete -H "x-admin-key: <密钥>" \
+  -H "Content-Type: application/json" -d '{"name":"某道号"}'
+```
+
+密钥校验使用 `timingSafeEqual` 防时序攻击；更换密钥只需改写 `admin.key` 文件。
+
 ## 🗺 路线图
 
 - M2：宗门多人玩法、道友互动、赛季榜单
