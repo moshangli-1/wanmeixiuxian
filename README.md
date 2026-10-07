@@ -71,6 +71,23 @@ npm run desktop           # 自动拉起服务器并打开游戏窗口
 - [docs/GDD.md](docs/GDD.md) —— 幻想内核、设计支柱、核心循环、系统地图、里程碑
 - [docs/数值与公式.md](docs/数值与公式.md) —— 全部公式的符号形式、算例与调参面
 
+## ☁ 部署到自有服务器
+
+零依赖设计让迁移极简——任何有 Node ≥ 22.13 的机器即可：
+
+```bash
+git clone https://github.com/moshangli-1/wanmeixiuxian.git
+cd wanmeixiuxian
+PORT=3000 node server/server.js   # 服务监听 $PORT，默认 3000
+```
+
+生产建议：
+
+- **进程守护**：`pm2 start server/server.js --name wanmei-xiuxian`，或写一个 systemd 单元；
+- **反向代理**：Nginx 80/443 → `127.0.0.1:3000`，配好 SSL 证书即可对外；
+- **数据迁移**：把整个 `data/` 目录（`game.db` + `.secret`）拷到新机即全量迁移，账号、角色、日志全部保留；
+- **安全说明**：`.secret` 是 JWT 签名密钥，删除它等于让全部登录态失效并重新生成；数据库为 SQLite 单文件，无外部服务依赖。
+
 ## 🗺 路线图
 
 - M2：宗门多人玩法、道友互动、赛季榜单
