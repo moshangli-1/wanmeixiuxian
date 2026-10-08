@@ -90,18 +90,28 @@ PORT=3000 node server/server.js   # 服务监听 $PORT，默认 3000
 
 ## 🛠 管理端（运营）
 
-项目根目录的 `admin.key`（已被 gitignore 排除，本地持有、随部署进入运行环境）为管理密钥：
+浏览器打开 `https://你的域名/admin.html`，输入管理密钥即可进入完整运营台（密钥在项目根 `admin.key`，gitignore 排除、本地持有、随部署进入运行环境）：
+
+| 页签 | 功能 |
+|---|---|
+| 账号 | 列表 / 编辑数值（灵石灵气境界层数道韵气血）/ 封禁解封（即时生效）/ 重置密码 / 删号 |
+| 仪表盘 | 注册数、全服灵石、累计斩妖、探索/战败、突破与炼制成功率、奇遇与轮回次数、境界分布图 |
+| 公告 | 全服公告发布/撤下，展示于游戏顶部 |
+| 补偿 | 按道号或全服发放灵石/物品/灵气（灵气按各自速率折算） |
+| 活动 | 全服掉落/灵气倍率热开关（1–10 倍，立即生效，含离线收益） |
+| 审计日志 | 全部管理操作留痕（最近 100 条） |
+| 设置 | 一键导出全服数据 JSON 备份 / 在线更换管理密钥（≥16 位，立即生效） |
+
+接口亦可直接调用：
 
 ```bash
-# 查看全部账号
 curl https://你的域名/api/admin/list -H "x-admin-key: <密钥>"
-
-# 删除账号（级联清理角色/物品/功法/法宝/日志/事件）
 curl -X POST https://你的域名/api/admin/delete -H "x-admin-key: <密钥>" \
   -H "Content-Type: application/json" -d '{"name":"某道号"}'
+# 其余：/api/admin/stats · export · notice · grant · buff · edit · ban · resetpass · setkey · logs
 ```
 
-密钥校验使用 `timingSafeEqual` 防时序攻击；更换密钥只需改写 `admin.key` 文件。
+密钥校验使用 `timingSafeEqual` 防时序攻击。
 
 ## 🗺 路线图
 
