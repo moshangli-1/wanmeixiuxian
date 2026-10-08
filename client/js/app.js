@@ -98,14 +98,14 @@ async function enterGame(isNew = false) {
 // ---------- 全量渲染 ----------
 function renderAll() {
   const st = S.st;
-  $('#hud-name').textContent = st.player.name;
+  $('#hud-name').textContent = `${st.player.name} · ${st.player.title}`;
   $('#hud-realm').textContent = st.player.realmName;
   $('#hud-stones').textContent = fmt(st.player.stones);
   $('#hud-dao').textContent = st.player.dao > 0 ? `${st.player.dao}道韵` : st.player.dao;
   const nb = $('#notice-bar');
   if (st.notice && st.notice.text) { nb.innerHTML = `<span title="${esc(st.notice.text)}">${esc(st.notice.text)}</span>`; nb.hidden = false; }
   else nb.hidden = true;
-  renderCultivate(); renderCombat(); renderAlchemy(); renderBag(); renderTechnique(); renderSect();
+  renderCultivate(); renderCombat(); renderAlchemy(); renderBag(); renderTechnique(); renderDex(); renderSect();
   renderLogs(st.logs);
   renderAdventure(st.adventure);
 }
@@ -126,7 +126,8 @@ function renderCultivate() {
   $('#panel-cultivate').innerHTML = `
   <div class="cult-wrap">
     <div class="realm-big">${esc(p.realmName)}</div>
-    <div class="realm-sub">${esc(p.realmDesc)}${p.rebirths > 0 ? ` · 第 ${p.rebirths + 1} 世 · 道韵 ${p.dao}` : ''}</div>
+    <div class="realm-sub">${esc(p.realmDesc)}${p.rebirths > 0 ? ` · 第 ${p.rebirths + 1} 世 · 道韵 ${p.dao}` : ''} · 道号 ${esc(p.name)}</div>
+    <div class="rate-line" style="color:var(--gold-hi)">〔${esc(p.title)}〕</div>
     <div class="qi-ring">
       <svg width="190" height="190" viewBox="0 0 190 190">
         <defs><linearGradient id="qiGrad" x1="0" y1="0" x2="1" y2="1">
@@ -167,15 +168,25 @@ function renderCultivate() {
 function renderCombat() {
   const p = S.st.player;
   const zones = S.st.catalog.zones;
+  const boss = S.st.catalog.bosses[p.realm];
   const cards = zones.map((z) => {
-    const locked = z.tier > p.realm;
+    const hidden = z.tier === -1;
+    const locked = hidden ? p.rebirths < z.req : z.tier > p.realm;
+    const kindColor = z.kind === 'herb' ? 'var(--green)' : z.kind === 'danger' ? 'var(--red)' : 'var(--jade)';
     return `<div class="zone-card ${locked ? 'locked' : ''} ${S.zoneSel === z.idx && !locked ? 'sel' : ''}" data-idx="${z.idx}">
       <div class="zone-name">${esc(z.name)}</div>
-      <div class="zone-tier">${locked ? `需 ${S.st.catalog.realms[z.tier]}期` : `${S.st.catalog.realms[z.tier]}期妖兽 · 连战至十场`}</div>
+      <div class="zone-tier"><span style="color:${kindColor}">◈ ${z.kindName}</span> · ${hidden ? `需转世 ${z.req} 次` : locked ? `需 ${S.st.catalog.realms[z.tier]}期` : `${S.st.catalog.realms[z.tier]}期妖兽 · 连战至十场`}</div>
     </div>`;
   }).join('');
   $('#panel-combat').innerHTML = `
     <div class="sec-title">斩 妖 夺 宝</div>
+    <div class="card" style="margin-bottom:14px; ${p.bossDone ? '' : 'border-color:var(--gold)'}">
+      <div class="row">
+        <div><h4>🐲 今日首领 · ${boss.name} <span class="muted">[${boss.title}]</span></h4>
+        <div class="desc">${p.bossDone ? '今日已伏诛，明日再战。' : '每日首杀必得破境丹 ×1 与大笔灵石，30% 掉落法宝！'}（需气血充盈）</div></div>
+        <button class="btn primary small" id="btn-boss" ${p.bossDone ? 'disabled' : ''}>${p.bossDone ? '已讨伐' : '讨伐首领'}</button>
+      </div>
+    </div>
     <div class="explore-bar">
       <button class="btn primary" id="btn-explore">出 关 探 索</button>
       <div class="explore-hp">气血
@@ -191,61 +202,99 @@ function renderCombat() {
     c.classList.add('sel');
   }));
   $('#btn-explore').addEventListener('click', () => doAction('explore', { zone: S.zoneSel }));
+  $('#btn-boss').addEventListener('click', () => doAction('boss'));
 }
+
+// ---------- 图鉴 ----------
+function renderDex() {
+  const seen = Object.fromEntries((S.st.dex || []).map((d) => [d.kind, d]));
+  const C = S.st.catalog;
+  const cell = (kind, label) => {
+    const d = seen[kind];
+    return d ? `<span class="own" title="击杀 ${d.count} 次">✔ ${esc(label)}</span>` : `<span class="muted">？？？</span>`;
+  };
+  const rows = C.realms.map((rn, r) => `<tr>
+    <td class="name" style="color:var(--jade)">${rn}期</td>
+    <td>${cell('m:' + C.monsters[r][0], C.monsters[r][0])}</td>
+    <td>${cell('m:' + C.monsters[r][1], C.monsters[r][1])}</td>
+    <td>${cell('b:' + C.bosses[r].name, C.bosses[r].name)}</td></tr>`).join('');
+  $('#panel-dex').innerHTML = `
+    <div class="sec-title">万 妖 图 鉴（${p0().dexCount} / 27）</div>
+    <p class="muted" style="margin-bottom:12px">击杀对应妖兽或首领以解锁条目。集齐一个境界的全部三条目（2 妖兽 + 1 首领），天道赐下大笔灵石。</p>
+    <table><thead><tr><th>境界</th><th>妖兽·壹</th><th>妖兽·贰</th><th>首领</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+function p0() { return S.st.player; }
 
 // ---------- 丹器 ----------
 function renderAlchemy() {
   const inv = Object.fromEntries(S.st.inventory.map((i) => [i.item_id, i.qty]));
+  const prices = S.st.catalog.prices || {};
+  const priceTag = (id) => {
+    const m = prices[id] || 1;
+    const cls = m >= 1.05 ? 'own' : m <= 0.95 ? '' : 'muted';
+    const dir = m >= 1.05 ? '▲' : m <= 0.95 ? '▼' : '—';
+    return `<span class="${cls}" title="坊市今日行情">${dir}×${m.toFixed(2)}</span>`;
+  };
   const recipes = Object.entries(S.st.catalog.recipes).map(([id, r]) => {
     const cost = Object.entries(r.cost).map(([m, n]) => `${S.st.catalog.items[m].name}×${n}（有${inv[m] || 0}）`).join('、');
     const isFabao = id === 'fabao';
     return `<div class="card">
       <h4>${isFabao ? '炼器 · ' : '炼丹 · '}${r.name} <span class="price">成功率 ${(r.p * 100).toFixed(0)}%</span></h4>
-      <div class="desc">${isFabao ? `随机法宝一件（品阶随当前境界）。另需灵石 ${r.stones}。` : `服之有益。材料：${cost}`}${!isFabao ? ` 材料：${cost}` : ` 材料：${cost}`}</div>
-      <div class="row"><span class="muted">${isFabao ? `材料：${cost}` : ''}</span>
+      <div class="desc">${isFabao
+        ? `随机法宝一件，隶属青冥/玄武/赤霄三系之一——集齐同系二件、三件可触发套装之力！另需灵石 ${r.stones}。材料：${cost}`
+        : `服之有益。材料：${cost}`}</div>
+      <div class="row"><span></span>
         <button class="btn small" data-craft="${id}">炼制 ×1</button>
         <button class="btn small" data-craft10="${id}">×10</button>
       </div>
     </div>`;
   }).join('');
-  const shop = Object.entries(S.st.catalog.items).filter(([, d]) => d.price).map(([id, d]) => `
-    <div class="card"><h4>${d.name} <span class="price">💠 ${d.price}</span></h4>
+  const shop = Object.entries(S.st.catalog.items).filter(([, d]) => d.price).map(([id, d]) => {
+    const unit = Math.ceil(d.price * (prices[id] || 1));
+    return `<div class="card"><h4>${d.name} <span class="price">💠 ${unit} ${priceTag(id)}</span></h4>
       <div class="desc">${d.desc}</div>
       <div class="row"><button class="btn small" data-buy="${id}">购入 ×1</button>
-      <button class="btn small" data-buy10="${id}">×10</button></div>
-    </div>`).join('');
+      <button class="btn small" data-buy10="${id}">×10</button>
+      ${SELLABLE[id] ? `<button class="btn small" data-sell="${id}">出售 💠${Math.floor((S.st.catalog.sellBase[id] || 0) * (prices[id] || 1))}</button>` : ''}</div>
+    </div>`;
+  }).join('');
   $('#panel-alchemy').innerHTML = `
     <div class="sec-title">丹 房 · 器 炉</div>
     <div class="grid2"><div class="stack">${recipes}</div>
-    <div><div class="sec-title">坊 市</div><div class="stack">${shop}</div></div></div>`;
+    <div><div class="sec-title">坊 市 <span class="muted" style="font-size:11px;letter-spacing:0">（行情每日浮动 · 每项限购 10）</span></div><div class="stack">${shop}</div></div></div>`;
   $$('#panel-alchemy [data-craft]').forEach((b) => b.addEventListener('click', () => doAction('craft', { recipe: b.dataset.craft, count: 1 })));
   $$('#panel-alchemy [data-craft10]').forEach((b) => b.addEventListener('click', () => doAction('craft', { recipe: b.dataset.craft10, count: 10 })));
   $$('#panel-alchemy [data-buy]').forEach((b) => b.addEventListener('click', () => doAction('buy', { item: b.dataset.buy, count: 1 })));
   $$('#panel-alchemy [data-buy10]').forEach((b) => b.addEventListener('click', () => doAction('buy', { item: b.dataset.buy10, count: 10 })));
+  $$('#panel-alchemy [data-sell]').forEach((b) => b.addEventListener('click', () => doAction('sell', { item: b.dataset.sell, count: 1 })));
 }
+const SELLABLE = { lingcao: 1, kuangshi: 1, yaodan: 1, xiandust: 1 };
 
 // ---------- 行囊 ----------
 function renderBag() {
   const inv = S.st.inventory.filter((i) => i.qty > 0);
-  const SELL = { lingcao: 6, kuangshi: 9, yaodan: 15 };
   const items = inv.length ? inv.map((i) => {
     const d = S.st.catalog.items[i.item_id];
     if (!d) return '';
     const pill = d.type === 'pill';
-    const canSell = SELL[i.item_id];
+    const canSell = SELLABLE[i.item_id];
+    const sellP = Math.floor((S.st.catalog.sellBase[i.item_id] || 0) * (S.st.catalog.prices[i.item_id] || 1));
     return `<div class="card"><div class="row">
       <div><h4>${d.name} ×${i.qty}</h4><div class="desc">${d.desc}</div></div>
       <div style="display:flex;gap:8px;flex-shrink:0">
         ${pill ? `<button class="btn small" data-use="${i.item_id}">服用</button>` : ''}
-        ${canSell ? `<button class="btn small" data-sell="${i.item_id}">出售💠${canSell}</button>` : ''}
+        ${canSell ? `<button class="btn small" data-sell="${i.item_id}">出售💠${sellP}</button>` : ''}
       </div></div></div>`;
   }).join('') : '<p class="muted">行囊空空，且去探索斩妖。</p>';
   const eqs = S.st.equips.length ? S.st.equips.map((e) => {
     const slotCN = { weapon: '攻', armor: '防', artifact: '灵' }[e.slot];
     const prop = e.atk ? `攻 +${fmt(e.atk)}` : e.hp ? `血 +${fmt(e.hp)}` : `防 +${fmt(e.def)}`;
-    return `<div class="card ${e.equipped ? '' : ''}" style="${e.equipped ? 'border-color:var(--gold)' : ''}">
+    const series = e.series ? S.st.catalog.equipSeries[e.series] : null;
+    const setName = series ? `${series.name}系列（2/3 件触发套装之力）` : '上古散件（无套装）';
+    return `<div class="card" style="${e.equipped ? 'border-color:var(--gold)' : ''}">
       <div class="row"><div><h4>${e.equipped ? '◈ ' : ''}${esc(e.name)} <span class="muted">[${slotCN}器·${e.tier + 1}阶]</span></h4>
-      <div class="desc">${prop}${e.rate ? ' · 吐纳 +10%' : ''}${e.def && e.atk ? ` · 攻 +${fmt(e.atk)}` : ''}</div></div>
+      <div class="desc">${prop}${e.rate ? ' · 吐纳 +10%' : ''}${e.def && e.atk ? ` · 攻 +${fmt(e.atk)}` : ''}<br>
+      <span style="color:var(--jade)">${setName}</span></div></div>
       <button class="btn small" data-eq="${e.id}" ${e.equipped ? 'disabled' : ''}>${e.equipped ? '已装备' : '祭出'}</button>
       </div></div>`;
   }).join('') : '<p class="muted">尚无法宝。可在【丹器】页炼器，或于奇遇中觅得。</p>';
@@ -261,15 +310,17 @@ function renderBag() {
 function renderTechnique() {
   const owned = Object.fromEntries(S.st.techniques.map((t) => [t.tech_id, t.lv]));
   const p = S.st.player;
+  const SKILL_TXT = { crit: '该回合必定会心', burst: '无视防御的重击', heal: '回复气血', guard: '该回合受伤大减' };
   const rows = Object.entries(S.st.catalog.techniques).map(([id, t]) => {
     const lv = owned[id];
     const upCost = 200 * Math.pow(6, lv || 1);
     const srcTxt = { initial: '初始功法', drop: '探索高阶地图掉落', adventure: '奇遇所得' }[t.source] ||
       (t.source.startsWith('sect:') ? `宗门贡献兑换（${t.source.split(':')[1]}）` : '');
+    const sk = t.skill ? `<br>✦ 战斗技【${t.skill.name}】：第 ${t.skill.rounds.join('、')} 回合自动施放——${SKILL_TXT[t.skill.type] || ''}${['burst'].includes(t.skill.type) ? `（${Math.round(t.skill.mult * 100)}% 攻击力）` : t.skill.type === 'heal' ? `（${Math.round(t.skill.mult * 100)}% 最大气血）` : ''}` : '';
     return `<div class="card" style="${p.technique === id ? 'border-color:var(--gold)' : ''}">
       <div class="row">
         <div><h4>${p.technique === id ? '◈ ' : ''}《${t.name}》${lv ? `<span class="own">${lv} 重</span>` : '<span class="muted">未习得</span>'}</h4>
-        <div class="desc">${t.desc} · 灵气速率 +${Math.round(t.rate * 100)}%${t.atk ? ` · 攻击 +${Math.round(t.atk * 100)}%` : ''}${t.hp ? ` · 气血 +${Math.round(t.hp * 100)}%` : ''}
+        <div class="desc">${t.desc} · 灵气速率 +${Math.round(t.rate * 100)}%${t.atk ? ` · 攻击 +${Math.round(t.atk * 100)}%` : ''}${t.hp ? ` · 气血 +${Math.round(t.hp * 100)}%` : ''}${sk}
         <br>来源：${srcTxt}</div></div>
         <div style="display:flex;gap:8px;flex-shrink:0">
           ${lv ? `<button class="btn small" data-tk="${id}">${p.technique === id ? '运转中' : '运转'}</button>
@@ -286,6 +337,7 @@ function renderTechnique() {
 function renderSect() {
   const p = S.st.player;
   const d = p.daily;
+  const lvTxt = (need) => ` <span class="muted">[需贡献等级 Lv${need}]</span>`;
   let inner;
   if (!p.sect) {
     inner = Object.entries(S.st.catalog.sects).map(([id, s]) => `
@@ -293,17 +345,26 @@ function renderSect() {
       <button class="btn small" data-sect="${id}">拜入门下</button></div>`).join('');
   } else {
     const sect = S.st.catalog.sects[p.sect];
+    const th = S.st.catalog.sectLvThresholds;
+    const lv = p.sectLv;
+    const next = th[lv]; // 下一级门槛
+    const pct = Math.min(100, Math.round(p.contrib / (next || 1) * 100));
     const task1 = d.meditate ? '今日已完成' : '可做（得灵气 + 贡献40）';
     const kills = d.kills || 0;
     const task2 = d.demon ? '今日已完成' : `击杀 ${kills}/10（贡献+60）`;
     const shop = Object.entries(S.st.catalog.sectShop).map(([id, g]) => {
       const name = g.kind === 'item' ? S.st.catalog.items[id].name : `《${S.st.catalog.techniques[id].name}》`;
       const had = g.kind === 'technique' && S.st.techniques.some((t) => t.tech_id === id);
-      return `<div class="card"><div class="row"><div><h4>${name}</h4><div class="desc">${g.kind === 'item' ? S.st.catalog.items[id].desc : '功法秘籍'}</div></div>
-      <button class="btn small" data-sbuy="${id}" ${had ? 'disabled' : ''}>${had ? '已习得' : '贡献 ' + g.contrib}</button></div></div>`;
+      const lvLocked = lv < (g.lv || 1);
+      return `<div class="card"><div class="row"><div><h4>${name}${lv > (g.lv || 1) ? '' : lvTxt(g.lv || 1)}</h4><div class="desc">${g.kind === 'item' ? S.st.catalog.items[id].desc : '功法秘籍'}</div></div>
+      <button class="btn small" data-sbuy="${id}" ${had || lvLocked ? 'disabled' : ''}>${had ? '已习得' : lvLocked ? `Lv${g.lv} 解锁` : '贡献 ' + g.contrib}</button></div></div>`;
     }).join('');
     inner = `
-      <div class="card"><h4>◈ ${sect.name}</h4><div class="desc">${sect.desc} · 当前贡献 <b class="own">${p.contrib}</b></div></div>
+      <div class="card"><h4>◈ ${sect.name} <span class="tag" style="margin-left:8px">贡献等级 Lv${lv}</span></h4>
+      <div class="desc">${sect.desc} · 当前贡献 <b class="own">${p.contrib}</b>
+      <br>等级加成：全属性 +${(lv - 1) * 2}%（Lv5 封顶 +8%）
+      ${lv < 5 ? `<div class="hp-bar" style="width:100%;margin-top:6px"><i style="width:${pct}%;background:linear-gradient(90deg,#b98e2e,#f4dd9b)"></i></div>
+      <span class="muted">距 Lv${lv + 1} 还需 ${Math.max(0, next - p.contrib)} 贡献</span>` : '<span class="own">已至最高等级</span>'}</div></div>
       <div class="grid2" style="margin-top:12px">
         <div class="card"><h4>宗门日常</h4><div class="stack">
           <div class="row"><span>打坐参禅 <span class="muted">${task1}</span></span><button class="btn small" data-stask="meditate" ${d.meditate ? 'disabled' : ''}>前往</button></div>
@@ -327,7 +388,7 @@ async function renderRank() {
     const rows = list.map((r, i) => `
       <div class="rank-row ${r.name === S.st.player.name ? 'me-row' : ''}">
         <div class="rank-no ${i < 3 ? 'top' + (i + 1) : ''}">${i + 1}</div>
-        <div class="rank-name">${esc(r.name)}${r.rebirths > 0 ? ` <span class="own">☯${r.dao}</span>` : ''}</div>
+        <div class="rank-name">${esc(r.name)} <span class="muted" style="font-size:11.5px">〔${esc(r.title)}〕</span>${r.rebirths > 0 ? ` <span class="own">☯${r.dao}</span>` : ''}</div>
         <div class="rank-realm">${S.st.catalog.realms[r.realm]}${['一', '二', '三', '四', '五', '六', '七', '八', '九'][r.layer - 1]}层</div>
         <div class="rank-score">${fmt(r.score)}</div>
       </div>`).join('');
@@ -374,6 +435,9 @@ async function doAction(type, payload = {}) {
       }
     } else if (type === 'explore' && r.kills !== undefined) {
       toast(`探索归来：斩妖 ${r.kills}，得灵石 ${fmt(r.stones)}、灵气 ${fmt(r.qig)}`, true);
+    } else if (type === 'boss') {
+      if (r.win) { $('#flash').classList.remove('go'); void $('#flash').offsetWidth; $('#flash').classList.add('go'); window.XianAudio.fanfare(); toast(`🏆 首领伏诛！得灵石 ${fmt(r.stones)} 与破境丹 ×1`, true, 3600); }
+      else { document.body.classList.add('shake'); setTimeout(() => document.body.classList.remove('shake'), 600); toast('首领之威难挡……养好伤势今日仍可再战'); }
     } else if (type === 'rebirth') {
       if (r.win) { $('#flash').classList.remove('go'); void $('#flash').offsetWidth; $('#flash').classList.add('go'); window.XianAudio.fanfare(); }
       else { document.body.classList.add('shake'); setTimeout(() => document.body.classList.remove('shake'), 600); }

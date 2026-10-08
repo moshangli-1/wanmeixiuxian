@@ -45,9 +45,10 @@ const TUNE = {
 
 // ---- 消耗品与材料 ----
 const ITEMS = {
-  lingcao:   { name: '灵草',   type: 'material', desc: '吸收日月精华的药草，炼丹基础材料。' },
-  kuangshi:  { name: '灵矿',   type: 'material', desc: '蕴含灵力的矿石，炼丹炼器皆可用。' },
-  yaodan:    { name: '妖丹',   type: 'material', desc: '妖兽体内凝结的内丹。' },
+  lingcao:   { name: '灵草',   type: 'material', desc: '吸收日月精华的药草，炼丹基础材料。', price: 100 },
+  kuangshi:  { name: '灵矿',   type: 'material', desc: '蕴含灵力的矿石，炼丹炼器皆可用。', price: 150 },
+  yaodan:    { name: '妖丹',   type: 'material', desc: '妖兽体内凝结的内丹。', price: 250 },
+  xiandust:  { name: '仙尘',   type: 'material', desc: '仙界碎片中飘落的微尘，蕴含大道气息。' },
   juqidan:   { name: '聚气丹', type: 'pill', desc: '服下立即获得 5 分钟挂机灵气。', price: 100 },
   huichundan:{ name: '回春丹', type: 'pill', desc: '恢复 60% 气血。', price: 80 },
   pojingdan: { name: '破境丹', type: 'pill', desc: '下次突破成功率 +15%（持续至下次突破）。', price: 500 },
@@ -63,12 +64,18 @@ const RECIPES = {
 
 // ---- 功法 ----
 // rate: 灵气速率加成  atk: 攻击加成  hp: 气血加成
+// skill: 战斗主动技（rounds=施放回合, type: crit会心/burst无视防御伤害/heal回血/guard减伤, mult=倍率, name=招式名）
 const TECHNIQUES = {
-  tunaijue:  { name: '吐纳诀',   rate: 0.5, atk: 0,    hp: 0,   desc: '入门吐纳之法，绵绵不绝。', source: 'initial' },
-  xuanyang:  { name: '玄阳功',   rate: 0.8, atk: 0.15, hp: 0,   desc: '玄阳真火淬体，攻速兼备。', source: 'sect:300' },
-  taixu:     { name: '太虚剑意', rate: 0.3, atk: 0.35, hp: 0,   desc: '一剑破万法。', source: 'drop' },
-  hunyuan:   { name: '混元一气功', rate: 1.5, atk: 0,  hp: 0.1, desc: '混元如一，灵力浩瀚如海。', source: 'sect:800' },
-  daluo:     { name: '大罗仙典', rate: 3.0, atk: 0.5,  hp: 0.2, desc: '传说中的仙家无上宝典。', source: 'adventure' },
+  tunaijue:  { name: '吐纳诀',   rate: 0.5, atk: 0,    hp: 0,   desc: '入门吐纳之法，绵绵不绝。', source: 'initial',
+    skill: { rounds: [3], type: 'heal', mult: 0.08, name: '周天循环' } },
+  xuanyang:  { name: '玄阳功',   rate: 0.8, atk: 0.15, hp: 0,   desc: '玄阳真火淬体，攻速兼备。', source: 'sect:300',
+    skill: { rounds: [3], type: 'burst', mult: 1.5, name: '玄阳焚天' } },
+  taixu:     { name: '太虚剑意', rate: 0.3, atk: 0.35, hp: 0,   desc: '一剑破万法。', source: 'drop',
+    skill: { rounds: [3, 6], type: 'crit', mult: 1, name: '太虚剑心' } },
+  hunyuan:   { name: '混元一气功', rate: 1.5, atk: 0,  hp: 0.1, desc: '混元如一，灵力浩瀚如海。', source: 'sect:800',
+    skill: { rounds: [4, 8], type: 'guard', mult: 0.5, name: '混元护体' } },
+  daluo:     { name: '大罗仙典', rate: 3.0, atk: 0.5,  hp: 0.2, desc: '传说中的仙家无上宝典。', source: 'adventure',
+    skill: { rounds: [3, 6, 9], type: 'burst', mult: 2.2, name: '大罗天罚' } },
 };
 const TECH_UP_COST = (lv) => Math.round(200 * Math.pow(6, lv)); // 升到 lv+1 级的花费
 
@@ -79,15 +86,19 @@ const SECTS = {
   yulingzong:{ name: '御灵宗', bonus: { rate: 0.15 },             desc: '御灵驭气，吐纳有方。（灵气速率 +15%）' },
   tianjige:  { name: '天机阁', bonus: { drop: 0.15, adv: 0.10 },  desc: '窥探天机，福缘深厚。（掉落 +15%，奇遇 +10%）' },
 };
+// 贡献等级：累计贡献达标自动升级，每级全属性 +2%
+const SECT_LV = [0, 300, 800, 1600, 3000]; // Lv1..Lv5 门槛
 const SECT_TASKS = {
   meditate: { name: '打坐参禅', contrib: 40, desc: '在宗门静室中打坐一日。' },
   demon:    { name: '除魔卫道', contrib: 60, desc: '今日累计击杀 10 只妖兽。', need: 10 },
 };
 const SECT_SHOP = {
-  juqidan:  { contrib: 30, kind: 'item' },
-  pojingdan:{ contrib: 80, kind: 'item' },
-  xuanyang: { contrib: 300, kind: 'technique' },
-  hunyuan:  { contrib: 800, kind: 'technique' },
+  juqidan:  { contrib: 30, kind: 'item', lv: 1 },
+  huichundan:{ contrib: 50, kind: 'item', lv: 2 },
+  pojingdan:{ contrib: 80, kind: 'item', lv: 1 },
+  xiandust: { contrib: 200, kind: 'item', lv: 5 },
+  xuanyang: { contrib: 300, kind: 'technique', lv: 2 },
+  hunyuan:  { contrib: 800, kind: 'technique', lv: 3 },
 };
 
 // ---- 探索地图与妖兽 ----
@@ -207,9 +218,72 @@ const ADVENTURES = [
       ]},
       { label: '我只想活下去', outcomes: [{ w: 2, text: '"求生存亦是道。"白衣人赠你灵石百枚，飘然而去。', fx: { stones: 100 } }] },
     ]},
+  // ---- 转世专属奇遇（rebirths ≥ realm_req 才进触发池）----
+  { id: 'oldfriend', name: '故人重逢', realm_req: 1, text: '一位故人站在山道旁对你微笑——可你分明记得，他百年前已兵解转世。"这一世，换我护道。"',
+    choices: [
+      { label: '与他对饮论道', outcomes: [
+        { w: 6, text: '前尘往事如潮涌来，两世记忆交汇，你于恍惚间触到了一丝大道本源。', fx: { qi: 4 } },
+        { w: 4, text: '他赠你一枚旧世珍藏的破境丹："故人之物，勿要推辞。"', fx: { item: { id: 'pojingdan', qty: 1 } } },
+      ]},
+      { label: '问他前世之秘', outcomes: [{ w: 2, text: '"天机不可尽泄。"他袖中滑出一袋灵石，转身化虹而去。', fx: { stones: 300 } }] },
+    ]},
+  { id: 'immortalrelic', name: '前世洞府', realm_req: 2, text: '轮回记忆猛然清晰——前山禁制之后，藏着你前世闭死关的洞府！',
+    choices: [
+      { label: '开启前世洞府', outcomes: [
+        { w: 5, text: '禁制认出你的魂息，洞门轰然洞开，前世收藏尽归今世！', fx: { item: { id: 'xiandust', qty: 3 }, stones: 500 } },
+        { w: 4, text: '洞中蒲团尚存前世道韵，盘膝一坐，灵感如泉。', fx: { qi: 6 } },
+        { w: 3, text: '禁制年久失修，洞府塌了半边，只抢出几株灵药。', fx: { item: { id: 'lingcao', qty: 5 } } },
+      ]},
+      { label: '长揖一礼，封山而去', outcomes: [{ w: 2, text: '"前世既已放下，今生何必再拾。"你封好洞府，道心反而更加澄澈。', fx: { qi: 3 } }] },
+    ]},
 ];
+
+// ---- 地图类型（A1）：idx 偶=灵植丰饶，奇=凶险秘境 ----
+const ZONE_KINDS = {
+  herb:   { name: '灵植丰饶', dropMul: { lingcao: 1.6, kuangshi: 1.6 }, stonesMul: 0.7 },
+  danger: { name: '凶险秘境', atkMul: 1.3, stonesMul: 1.5, yaodanMul: 1.5, pojing: 0.05 },
+};
+
+// ---- 每日首领（A2）----
+const BOSSES = [
+  { name: '千面妖王', title: '青云山之患' }, { name: '玄骨老祖', title: '荒古矿脉之主' },
+  { name: '赤炎蛇君', title: '烈焰谷霸主' },   { name: '幽冥鬼母', title: '幽冥深渊之主' },
+  { name: '雷狱天鹰', title: '紫霄崖之巅' },   { name: '虚空魔主', title: '裂隙中的凝视' },
+  { name: '陨星古兽', title: '星海遗种' },     { name: '魔渊古帝', title: '万魔渊之主' },
+  { name: '劫雷真灵', title: '天劫具象' },
+];
+
+// ---- 成就称号（A3）：全部达成即全部生效 ----
+const ACHIEVEMENTS = [
+  { id: 'first_kill', name: '初露锋芒', check: (p) => p.kills_total >= 1, bonus: { atk: 0.01 } },
+  { id: 'dex_apprentice', name: '格物致知', check: (p, dexN) => dexN >= 9, bonus: { atk: 0.01 } },
+  { id: 'boss_slayer', name: '弑神者', check: (p) => p.boss_kills >= 10, bonus: { hp: 0.03 } },
+  { id: 'thousand', name: '千斩老怪', check: (p) => p.kills_total >= 1000, bonus: { atk: 0.02 } },
+  { id: 'hundred_bt', name: '百战突破', check: (p) => p.bt_success >= 100, bonus: { atk: 0.02 } },
+  { id: 'rich', name: '腰缠万贯', check: (p) => p.stones >= 100000, bonus: { def: 0.02 } },
+  { id: 'first_rebirth', name: '轮回初醒', check: (p) => p.rebirths >= 1, bonus: { atk: 0.01, hp: 0.01, def: 0.01 } },
+  { id: 'dex_master', name: '图鉴大师', check: (p, dexN) => dexN >= 27, bonus: { atk: 0.03 } },
+];
+
+// ---- 法宝套装（C2）----
+const EQUIP_SERIES = {
+  qingming: { name: '青冥', names: { weapon: '青冥剑', armor: '青冥袍', artifact: '青冥鼎' },
+    set2: { atk: 0.05 }, set3: { atk: 0.10, rate: 0.05 } },
+  xuanwu: { name: '玄武', names: { weapon: '玄武刃', armor: '玄武衣', artifact: '玄武佩' },
+    set2: { hp: 0.08 }, set3: { hp: 0.15, def: 0.05 } },
+  chixiao: { name: '赤霄', names: { weapon: '赤霄鞭', armor: '赤霄裳', artifact: '赤霄索' },
+    set2: { atk: 0.03, hp: 0.03 }, set3: { atk: 0.05, hp: 0.05, rate: 0.05 } },
+};
+
+// ---- 转世专属隐藏地图（B1）：tier 跟随当前境界 ----
+const HIDDEN_MAPS = [
+  { name: '仙界碎片·壹', req: 1 }, { name: '仙界碎片·贰', req: 2 }, { name: '仙界碎片·叁', req: 3 },
+];
+const HIDDEN_STONES_MUL = 2.0;
+const HIDDEN_DUST = 0.25; // 仙尘掉率
 
 module.exports = {
   REALMS, TUNE, ITEMS, RECIPES, TECHNIQUES, TECH_UP_COST,
-  SECTS, SECT_TASKS, SECT_SHOP, ZONE_NAMES, MONSTER_NAMES, ADVENTURES,
+  SECTS, SECT_LV, SECT_TASKS, SECT_SHOP, ZONE_NAMES, MONSTER_NAMES, ADVENTURES,
+  ZONE_KINDS, BOSSES, ACHIEVEMENTS, EQUIP_SERIES, HIDDEN_MAPS, HIDDEN_STONES_MUL, HIDDEN_DUST,
 };

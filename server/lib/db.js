@@ -60,7 +60,8 @@ CREATE TABLE IF NOT EXISTS equips (
   def REAL NOT NULL DEFAULT 0,
   hp REAL NOT NULL DEFAULT 0,
   rate REAL NOT NULL DEFAULT 0,
-  equipped INTEGER NOT NULL DEFAULT 0
+  equipped INTEGER NOT NULL DEFAULT 0,
+  series TEXT DEFAULT NULL
 );
 CREATE TABLE IF NOT EXISTS logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,10 +93,21 @@ CREATE TABLE IF NOT EXISTS admin_logs (
   action TEXT NOT NULL,
   detail TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS dex (
+  user_id INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  first_ts INTEGER NOT NULL,
+  count INTEGER NOT NULL DEFAULT 1,
+  claimed INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, kind)
+);
 `);
 
-// 旧库迁移：users 补 banned 列（已存在则忽略）
-try { db.exec('ALTER TABLE users ADD COLUMN banned INTEGER NOT NULL DEFAULT 0'); } catch (e) { /* 已存在 */ }
+// 旧库迁移（已存在则忽略）
+try { db.exec('ALTER TABLE users ADD COLUMN banned INTEGER NOT NULL DEFAULT 0'); } catch (e) {}
+try { db.exec('ALTER TABLE players ADD COLUMN bt_success INTEGER NOT NULL DEFAULT 0'); } catch (e) {}
+try { db.exec('ALTER TABLE players ADD COLUMN boss_kills INTEGER NOT NULL DEFAULT 0'); } catch (e) {}
+try { db.exec('ALTER TABLE equips ADD COLUMN series TEXT DEFAULT NULL'); } catch (e) {}
 
 const now = () => Date.now();
 
@@ -108,7 +120,7 @@ const queries = {
   createPlayer: db.prepare(`INSERT INTO players (user_id, name, last_tick, created_at) VALUES (?,?,?,?)`),
   getPlayer: db.prepare('SELECT * FROM players WHERE user_id = ?'),
   updatePlayer: db.prepare(`UPDATE players SET realm=?, layer=?, qi=?, stones=?, hp=?, contrib=?, dao=?,
-    rebirths=?, technique=?, sect=?, last_tick=?, bt_bonus=?, adv=?, daily=?, kills_total=? WHERE user_id=?`),
+    rebirths=?, technique=?, sect=?, last_tick=?, bt_bonus=?, adv=?, daily=?, kills_total=?, bt_success=?, boss_kills=? WHERE user_id=?`),
   // ---- inventory ----
   getInventory: db.prepare('SELECT item_id, qty FROM inventory WHERE user_id = ?'),
   getItem: db.prepare('SELECT qty FROM inventory WHERE user_id = ? AND item_id = ?'),
@@ -119,7 +131,7 @@ const queries = {
   upsertTechnique: db.prepare(`INSERT INTO techniques (user_id, tech_id, lv) VALUES (?,?,?)
     ON CONFLICT(user_id, tech_id) DO UPDATE SET lv = excluded.lv`),
   // ---- equips ----
-  createEquip: db.prepare(`INSERT INTO equips (user_id, slot, name, tier, atk, def, hp, rate) VALUES (?,?,?,?,?,?,?,?)`),
+  createEquip: db.prepare(`INSERT INTO equips (user_id, slot, name, tier, atk, def, hp, rate, series) VALUES (?,?,?,?,?,?,?,?,?)`),
   getEquips: db.prepare('SELECT * FROM equips WHERE user_id = ?'),
   setEquipFlag: db.prepare('UPDATE equips SET equipped = ? WHERE id = ? AND user_id = ?'),
   deleteEquip: db.prepare('DELETE FROM equips WHERE id = ? AND user_id = ?'),
@@ -164,8 +176,16 @@ const queries = {
   allSettings: db.prepare('SELECT * FROM settings'),
   addStones: db.prepare('UPDATE players SET stones = stones + ? WHERE user_id = ?'),
   addQi: db.prepare('UPDATE players SET qi = qi + ? WHERE user_id = ?'),
+  // ---- 图鉴 / 成就 ----
+  dexUpsert: db.prepare(`INSERT INTO dex (user_id, kind, first_ts, count) VALUES (?,?,?,1)
+    ON CONFLICT(user_id, kind) DO UPDATE SET count = count + 1`),
+  dexGet: db.prepare('SELECT kind, first_ts, count FROM dex WHERE user_id = ?'),
+  dexCount: db.prepare('SELECT COUNT(*) c FROM dex WHERE user_id = ?'),
+  dexMarkClaimed: db.prepare('UPDATE dex SET claimed = 1 WHERE user_id = ? AND kind = ?'),
+  dexUnclaimedRealm: db.prepare('SELECT claimed FROM dex WHERE user_id = ? AND kind = ?'),
   // ---- leaderboard ----
   topPlayers: db.prepare('SELECT name, realm, layer, qi, dao, rebirths FROM players ORDER BY realm DESC, layer DESC, qi DESC LIMIT 20'),
+  topPlayersFull: db.prepare(`SELECT p.* FROM players p ORDER BY p.realm DESC, p.layer DESC, p.qi DESC LIMIT 20`),
 };
 
 module.exports = { db, queries, now };

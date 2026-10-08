@@ -20,6 +20,45 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 function qiNeed(r, n) { return Math.round(100 * Math.pow(TUNE.REALM_QI_MULT, r) * Math.pow(TUNE.LAYER_GROWTH, n - 1)); }
 
+// ---- C1 坊市浮动物价：确定性日浮动 0.85~1.15 ----
+function priceMul(itemId) {
+  const s = today() + ':' + itemId;
+  let h = 0;
+  for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return 0.85 + (h % 31) / 100;
+}
+// 卖出基准（材料可售）
+const SELL_BASE = { lingcao: 30, kuangshi: 45, yaodan: 75, xiandust: 400 };
+
+// ---- A4 图鉴：击杀解锁计数，集齐一境界自动发奖 ----
+function dexRecord(p, kind) {
+  q.dexUpsert.run(p.user_id, kind, now());
+  // 集齐该境界 3 条目（2 妖兽 + 1 首领）→ 一次性奖励
+  const r = p.realm;
+  const kinds = C.MONSTER_NAMES[r].map((n) => 'm:' + n).concat(['b:' + C.BOSSES[r].name]);
+  if (kinds.every((k) => q.dexUnclaimedRealm.get(p.user_id, k))) {
+    for (const k of kinds) q.dexMarkClaimed.run(p.user_id, k);
+    const reward = Math.round(1000 * Math.pow(TUNE.REALM_QI_MULT, r));
+    p.stones += reward;
+    log(p.user_id, 'gold', `📖 恭喜！你集齐了【${REALMS[r].name}期图鉴】，天道赐下灵石 ${reward} 枚！`);
+    q.addEvent.run(p.user_id, now(), 'dex_complete', JSON.stringify({ realm: r, reward }));
+  }
+}
+function dexCount(p) { return q.dexCount.get(p.user_id).c; }
+
+// ---- A3 成就称号：全部达成即全部生效 ----
+function achievementBonus(p) {
+  const dn = dexCount(p);
+  const out = { atk: 0, hp: 0, def: 0 };
+  let title = '';
+  for (const a of C.ACHIEVEMENTS) {
+    if (!a.check(p, dn)) continue;
+    title = a.name; // 顺序即阶位，后覆盖前
+    for (const [k, v] of Object.entries(a.bonus)) out[k] += v;
+  }
+  return { ...out, title };
+}
+
 function log(userId, kind, text) {
   q.addLog.run(userId, now(), kind, text);
   q.pruneLogs.run(userId, userId);
@@ -35,6 +74,12 @@ function getBuff() {
 }
 
 // ---------- 属性计算 ----------
+function sectLv(p) {
+  let lv = 1;
+  for (let i = 0; i < C.SECT_LV.length; i++) if (p.contrib >= C.SECT_LV[i]) lv = i + 1;
+  return Math.min(5, lv);
+}
+
 function computeStats(p, equips, techs) {
   const buff = getBuff();
   const scale = Math.pow(TUNE.ATTR_MULT, p.realm) * (1 + TUNE.ATTR_LAYER * (p.layer - 1));
@@ -47,11 +92,29 @@ function computeStats(p, equips, techs) {
   const eqDef = eq.reduce((s, e) => s + e.def, 0);
   const eqHp = eq.reduce((s, e) => s + e.hp, 0);
   const eqRate = eq.reduce((s, e) => s + e.rate, 0);
+
+  // C2 套装：同系列 2/3 件触发
+  const seriesCount = {};
+  for (const e of eq) if (e.series) seriesCount[e.series] = (seriesCount[e.series] || 0) + 1;
+  const setBonus = { atk: 0, hp: 0, def: 0, rate: 0 };
+  for (const [sid, n] of Object.entries(seriesCount)) {
+    const def2 = C.EQUIP_SERIES[sid];
+    if (!def2) continue;
+    const b = n >= 3 ? { ...def2.set3 } : n === 2 ? { ...def2.set2 } : null;
+    if (b) for (const [k, v] of Object.entries(b)) setBonus[k] += v;
+  }
+  // A3 成就称号 + B3 宗门等级
+  const ach = achievementBonus(p);
+  const sLv = p.sect ? sectLv(p) : 1;
+  const sectAttr = 1 + 0.02 * (sLv - 1);
+
   return {
-    atk: Math.round(TUNE.BASE_ATK * scale * (1 + eff(tDef ? tDef.atk : 0)) * (1 + (sect?.bonus.atk || 0)) * (1 + 0.03 * p.dao) + eqAtk),
-    def: Math.round(TUNE.BASE_DEF * scale + eqDef),
-    hpMax: Math.round(TUNE.BASE_HP * scale * (1 + eff(tDef ? tDef.hp : 0)) + eqHp),
-    rate: TUNE.BASE_RATE * Math.pow(TUNE.REALM_RATE_MULT, p.realm) * (1 + eff(tDef ? tDef.rate : 0)) * (1 + (sect?.bonus.rate || 0)) * (1 + 0.05 * p.dao) * buff.rate + eqRate,
+    atk: Math.round(TUNE.BASE_ATK * scale * (1 + eff(tDef ? tDef.atk : 0) + setBonus.atk) * (1 + (sect?.bonus.atk || 0)) * (1 + 0.03 * p.dao) * (1 + ach.atk) * sectAttr + eqAtk),
+    def: Math.round((TUNE.BASE_DEF * scale + eqDef) * (1 + setBonus.def) * (1 + ach.def) * sectAttr),
+    hpMax: Math.round(TUNE.BASE_HP * scale * (1 + eff(tDef ? tDef.hp : 0) + setBonus.hp) * sectAttr * (1 + ach.hp) + eqHp),
+    rate: TUNE.BASE_RATE * Math.pow(TUNE.REALM_RATE_MULT, p.realm) * (1 + eff(tDef ? tDef.rate : 0) + setBonus.rate) * (1 + (sect?.bonus.rate || 0)) * (1 + 0.05 * p.dao) * buff.rate + eqRate,
+    sectLv: sLv,
+    title: ach.title,
   };
 }
 
@@ -77,7 +140,8 @@ function applyTick(p) {
 
 function savePlayer(p) {
   q.updatePlayer.run(p.realm, p.layer, Math.round(p.qi), Math.round(p.stones), Math.round(p.hp),
-    p.contrib, p.dao, p.rebirths, p.technique, p.sect, p.last_tick, p.bt_bonus, p.adv, p.daily, p.kills_total, p.user_id);
+    p.contrib, p.dao, p.rebirths, p.technique, p.sect, p.last_tick, p.bt_bonus, p.adv, p.daily, p.kills_total,
+    p.bt_success || 0, p.boss_kills || 0, p.user_id);
 }
 
 // ---------- 战斗模拟 ----------
@@ -85,23 +149,46 @@ function battleLine(kind, text) { return { kind, text }; }
 
 function simulateBattle(p, st, monster) {
   const lines = [];
+  const tDef = C.TECHNIQUES[p.technique];
+  const sk = tDef && tDef.skill ? tDef.skill : null;
   let mHp = monster.hp;
   let pHp = p.hp;
   let round = 0;
   lines.push(battleLine('battle', `⚔ 你与【${monster.name}】战作一团！`));
   while (mHp > 0 && pHp > 0 && round < 40) {
     round++;
+    if (sk && sk.rounds.includes(round)) {
+      if (sk.type === 'burst') {
+        const dmg = Math.max(1, Math.round(st.atk * sk.mult));
+        mHp -= dmg;
+        lines.push(battleLine('gold', `✦ 功法【${sk.name}】发动！你爆喝一声，${sk.mult >= 2 ? '天威如狱' : '真火焚身'}，无视护体轰出 ${dmg} 点伤害！`));
+        if (mHp <= 0) break;
+      } else if (sk.type === 'heal') {
+        const heal = Math.round(st.hpMax * sk.mult);
+        pHp = Math.min(st.hpMax, pHp + heal);
+        lines.push(battleLine('good', `✦ 功法【${sk.name}】发动！灵力周天流转，回复 ${heal} 点气血。`));
+      } else if (sk.type === 'guard') {
+        // 本回合生效标记（下方受击段读取）
+        lines.push(battleLine('good', `✦ 功法【${sk.name}】发动！罡气护体，此回合受到的伤害大减。`));
+        var guard = sk.mult;
+      } else if (sk.type === 'crit') {
+        lines.push(battleLine('gold', `✦ 功法【${sk.name}】发动！剑意通明，此番出手必中要害！`));
+        var forceCrit = true;
+      }
+    }
     let dmg = Math.max(1, Math.round(st.atk * rand(0.85, 1.15) - monster.def));
-    let crit = Math.random() < TUNE.CRIT_RATE;
+    let crit = forceCrit === true || Math.random() < TUNE.CRIT_RATE;
     if (crit) dmg = Math.round(dmg * TUNE.CRIT_MULT);
     mHp -= dmg;
     lines.push(battleLine('battle', crit
       ? `你运起真元，会心一击！【${monster.name}】受创 ${dmg} 点！`
       : `你剑光如虹，对【${monster.name}】造成 ${dmg} 点伤害。`));
+    forceCrit = false;
     if (mHp <= 0) break;
     let mdmg = Math.max(1, Math.round(monster.atk * rand(0.85, 1.15) - st.def));
     const mcrit = Math.random() < 0.05;
     if (mcrit) mdmg = Math.round(mdmg * 1.5);
+    if (guard) { mdmg = Math.max(1, Math.round(mdmg * (1 - guard))); guard = 0; }
     pHp -= mdmg;
     lines.push(battleLine('battle', mcrit
       ? `【${monster.name}】狂性大发，狠狠撕中你，损失 ${mdmg} 点气血！`
@@ -111,37 +198,47 @@ function simulateBattle(p, st, monster) {
   return { win, hpLeft: Math.max(0, pHp), lines };
 }
 
-function makeMonster(tier, idx) {
+function makeMonster(tier, idx, atkMul) {
   const base = Math.pow(TUNE.ATTR_MULT, tier);
   return {
     name: C.MONSTER_NAMES[tier][idx],
     hp: Math.round(80 * base * rand(0.9, 1.15)),
-    atk: Math.round(7 * base),
+    atk: Math.round(7 * base * (atkMul || 1)),
     def: Math.round(3 * base),
   };
 }
 
 // ---------- 探索 ----------
+// zoneIdx 0..17：常规地图（idx 偶=灵植丰饶，奇=凶险秘境）；18..20：转世专属隐藏图（tier 跟随当前境界）
 function explore(p) {
   const zoneIdx = arguments[1] | 0;
-  const zoneTier = Math.floor(zoneIdx / 2);
-  if (zoneIdx < 0 || zoneIdx >= C.ZONE_NAMES.length * 2) throw new GameError('不存在的地图');
+  const isHidden = zoneIdx >= C.ZONE_NAMES.length * 2;
+  const hiddenDef = isHidden ? C.HIDDEN_MAPS[zoneIdx - C.ZONE_NAMES.length * 2] : null;
+  if (isHidden && !hiddenDef) throw new GameError('不存在的地图');
+  const zoneTier = isHidden ? p.realm : Math.floor(zoneIdx / 2);
+  if (!isHidden && zoneIdx < 0) throw new GameError('不存在的地图');
   if (zoneTier > p.realm) throw new GameError('境界不足，无法前往此地');
-  const zoneName = C.ZONE_NAMES[zoneTier][zoneIdx % 2];
+  if (isHidden && p.rebirths < hiddenDef.req) throw new GameError('此地乃轮回者方能踏足的仙界碎片');
+  if (isHidden && zoneIdx > C.ZONE_NAMES.length * 2 + C.HIDDEN_MAPS.length - 1) throw new GameError('不存在的地图');
+  const kind = isHidden ? null : C.ZONE_KINDS[zoneIdx % 2 === 0 ? 'herb' : 'danger'];
+  const zoneName = isHidden ? hiddenDef.name : C.ZONE_NAMES[zoneTier][zoneIdx % 2];
   const sect = p.sect ? C.SECTS[p.sect] : null;
   const dropBoost = sect?.bonus.drop || 0;
-  const lines = [battleLine('system', `🌄 你御风而行，抵达【${zoneName}】。`)];
+  const buff = getBuff();
+  const lines = [battleLine('system', `🌄 你御风而行，抵达【${zoneName}】${isHidden ? '——仙界碎片间大道法则清晰可闻！' : ''}。`)];
   const st = applyTick(p).stats;
   const techs = q.getTechniques.all(p.user_id);
   const owned = new Set(techs.map((t) => t.tech_id));
   let kills = 0, stones = 0, qig = 0;
   const drops = {};
   const need1 = qiNeed(p.realm, 1);
-  const perKillStones = () => Math.round((20 + 15 * zoneTier) * Math.pow(TUNE.ATTR_MULT, zoneTier) * rand(0.8, 1.3));
+  const stonesMul = (isHidden ? C.HIDDEN_STONES_MUL : 1) * (kind ? kind.stonesMul : 1);
+  const perKillStones = () => Math.round((20 + 15 * zoneTier) * Math.pow(TUNE.ATTR_MULT, zoneTier) * stonesMul * rand(0.8, 1.3));
   const perKillQi = () => Math.round(need1 * 0.05 * rand(0.8, 1.2));
+  const atkMul = kind?.atkMul || 1;
 
   for (let i = 0; i < TUNE.EXPLORE_MAX; i++) {
-    const monster = makeMonster(zoneTier, Math.random() < 0.5 ? 0 : 1);
+    const monster = makeMonster(zoneTier, Math.random() < 0.5 ? 0 : 1, atkMul);
     const res = simulateBattle(p, st, monster);
     lines.push(...res.lines);
     if (!res.win) {
@@ -152,13 +249,16 @@ function explore(p) {
     }
     p.hp = res.hpLeft;
     kills++;
+    dexRecord(p, 'm:' + monster.name);
     const s = perKillStones(), g = perKillQi();
     stones += s; qig += g;
     lines.push(battleLine('good', `【${monster.name}】轰然倒地！灵石 +${s}，灵气 +${g}。`));
-    // 掉落
-  const buff = getBuff();
-  for (const [id, rate] of [['lingcao', 0.30], ['kuangshi', 0.22], ['yaodan', 0.12], ['pojingdan', 0.02]]) {
-    if (Math.random() < rate * (1 + dropBoost) * buff.drop) {
+    // 掉落：基础表 × 地图类型 × 宗门 × 活动倍率
+    const mulFor = (id) => (kind?.dropMul?.[id] || 1) * (kind?.yaodanMul && id === 'yaodan' ? kind.yaodanMul : 1);
+    const rates = [['lingcao', 0.30], ['kuangshi', 0.22], ['yaodan', 0.12],
+      ['pojingdan', kind?.pojing || 0.02], ...(isHidden ? [['xiandust', C.HIDDEN_DUST]] : [])];
+    for (const [id, rate] of rates) {
+      if (Math.random() < rate * (1 + dropBoost) * (1 + (buff.drop - 1)) * mulFor(id)) {
         drops[id] = (drops[id] || 0) + 1;
         lines.push(battleLine('good', `拾获 ${C.ITEMS[id].name} ×1。`));
       }
@@ -186,22 +286,68 @@ function explore(p) {
       q.upsertItem.run(p.user_id, id, (row ? row.qty : 0) + n);
     }
   }
-  // 奇遇判定
+  // 奇遇判定（转世专属奇遇进池）
   let adventure = null;
   const advP = TUNE.ADV_CHANCE + (sect?.bonus.adv || 0);
   if (Math.random() < advP) {
     adventure = startAdventure(p);
-    lines.push(battleLine('gold', `✦ 奇遇降临：【${C.ADVENTURES.find(a => a.id === adventure).name}】！（前往「修炼」页处理）`));
+    if (adventure) lines.push(battleLine('gold', `✦ 奇遇降临：【${C.ADVENTURES.find(a => a.id === adventure).name}】！（前往「修炼」页处理）`));
   }
   log(p.user_id, 'battle', lines.map((l) => l.text).join('\n'));
   q.addEvent.run(p.user_id, now(), 'explore', JSON.stringify({ zone: zoneIdx, kills, dead: p.hp <= 1 }));
   return { kills, stones, qig, adventure };
 }
 
+// ---------- 每日首领（A2）----------
+function bossFight(p) {
+  const d = JSON.parse(p.daily);
+  if (d.bossDay === today() && d.bossDone) throw new GameError('今日首领已伏诛，明日再来讨伐');
+  const r = p.realm;
+  const base = Math.pow(TUNE.ATTR_MULT, r);
+  const boss = {
+    name: C.BOSSES[r].name,
+    hp: Math.round(8 * 80 * base),
+    atk: Math.round(1.2 * 7 * base),
+    def: Math.round(6 * base),
+  };
+  const st = applyTick(p).stats;
+  const lines = [battleLine('gold', `🐲 【${boss.name}】（${C.BOSSES[r].title}）自深山中升起，妖云蔽日——此乃今日之首领！`)]; 
+  const res = simulateBattle(p, st, boss);
+  lines.push(...res.lines);
+  let result;
+  if (res.win) {
+    p.hp = res.hpLeft;
+    d.bossDay = today(); d.bossDone = true;
+    p.boss_kills = (p.boss_kills || 0) + 1;
+    p.bt_success = p.bt_success || 0;
+    const s = Math.round(300 * base * rand(0.9, 1.2));
+    p.stones += s;
+    const row = q.getItem.get(p.user_id, 'pojingdan');
+    q.upsertItem.run(p.user_id, 'pojingdan', (row ? row.qty : 0) + 1);
+    dexRecord(p, 'b:' + boss.name);
+    lines.push(battleLine('gold', `🏆 【${boss.name}】轰然陨落！你名动一方！灵石 +${s}，必得破境丹 ×1。`));
+    if (Math.random() < 0.3) {
+      const fabao = craftFabao(p);
+      lines.push(battleLine('gold', `📦 妖王腹中藏有法宝「${fabao.name}」，被你收入囊中！`));
+    }
+    q.addEvent.run(p.user_id, now(), 'boss', JSON.stringify({ win: 1, realm: r }));
+    result = { win: true, stones: s };
+  } else {
+    p.hp = Math.max(1, res.hpLeft);
+    lines.push(battleLine('bad', `☠ 首领之威远超想象，你败退下来。养好伤势，今日仍可再战。`));
+    q.addEvent.run(p.user_id, now(), 'boss', JSON.stringify({ win: 0, realm: r }));
+    result = { win: false };
+  }
+  p.daily = JSON.stringify(d);
+  log(p.user_id, 'battle', lines.map((l) => l.text).join('\n'));
+  return result;
+}
+
 // ---------- 奇遇 ----------
 function startAdventure(p) {
   if (p.adv) throw new GameError('已有未处理的奇遇');
-  const adv = pick(C.ADVENTURES);
+  const pool = C.ADVENTURES.filter((a) => !a.realm_req || p.rebirths >= a.realm_req);
+  const adv = pick(pool);
   p.adv = adv.id;
   return adv.id;
 }
@@ -269,6 +415,7 @@ function breakthrough(p) {
   let ok = Math.random() < chance;
   let text;
   if (ok) {
+    p.bt_success = (p.bt_success || 0) + 1;
     if (p.layer === 9) {
       p.realm++; p.layer = 1;
       const reward = Math.round(500 * Math.pow(TUNE.REALM_QI_MULT, p.realm - 1));
@@ -299,19 +446,20 @@ function craftFabao(p) {
   const qq = rand(0.8, 1.35);
   const grade = qq < 0.95 ? '下品' : qq < 1.15 ? '中品' : qq < 1.3 ? '上品' : '极品';
   const slot = pick(['weapon', 'armor', 'artifact']);
-  const names = { weapon: pick(['青锋剑', '裂空刃', '赤霄鞭']), armor: pick(['玄龟甲', '流云袍', '星纹衣']), artifact: pick(['聚灵鼎', '乾坤佩', '缚妖索']) };
-  const slotCN = { weapon: '攻', armor: '防', artifact: '灵' }[slot];
-  const base = Math.pow(TUNE.ATTR_MULT, tier);
+  // C2 套装：随机归属三系列之一
+  const seriesId = pick(Object.keys(C.EQUIP_SERIES));
+  const series = C.EQUIP_SERIES[seriesId];
   const e = {
-    slot, name: `${grade}·${names[slot]}`, tier,
-    atk: slot === 'weapon' ? Math.round(18 * base * qq) : slot === 'artifact' ? Math.round(5 * base * qq) : 0,
-    def: slot === 'artifact' ? Math.round(12 * base * qq) : 0,
-    hp: slot === 'armor' ? Math.round(350 * base * qq) : 0,
+    slot, series: seriesId, name: `${grade}·${series.names[slot]}`, tier,
+    atk: slot === 'weapon' ? Math.round(18 * base(tier) * qq) : slot === 'artifact' ? Math.round(5 * base(tier) * qq) : 0,
+    def: slot === 'artifact' ? Math.round(12 * base(tier) * qq) : 0,
+    hp: slot === 'armor' ? Math.round(350 * base(tier) * qq) : 0,
     rate: slot === 'artifact' ? 0.1 : 0,
   };
-  const id = q.createEquip.run(p.user_id, e.slot, e.name, e.tier, e.atk, e.def, e.hp, e.rate);
+  const id = q.createEquip.run(p.user_id, e.slot, e.name, e.tier, e.atk, e.def, e.hp, e.rate, e.series);
   return { ...e, id: Number(id.lastInsertRowid) };
 }
+function base(tier) { return Math.pow(TUNE.ATTR_MULT, tier); }
 
 function craft(p, recipeId, count) {
   const recipe = C.RECIPES[recipeId];
@@ -372,27 +520,37 @@ function useItem(p, itemId, count) {
 }
 
 function sellItem(p, itemId, count) {
-  const SELL = { lingcao: 6, kuangshi: 9, yaodan: 15 };
-  if (!SELL[itemId]) throw new GameError('此物无法出售');
+  const base = SELL_BASE[itemId];
+  if (!base) throw new GameError('此物无法出售');
   count = Math.max(1, count | 0 || 1);
   const row = q.getItem.get(p.user_id, itemId);
   if (!row || row.qty < count) throw new GameError('数量不足');
   q.upsertItem.run(p.user_id, itemId, row.qty - count);
-  const gain = SELL[itemId] * count;
+  const gain = Math.floor(base * priceMul(itemId)) * count;
   p.stones += gain;
-  log(p.user_id, 'system', `你将 ${C.ITEMS[itemId].name} ×${count} 卖给坊市，得灵石 ${gain}。`);
+  log(p.user_id, 'system', `你将 ${C.ITEMS[itemId].name} ×${count} 卖给坊市（今日市价 ×${priceMul(itemId).toFixed(2)}），得灵石 ${gain}。`);
 }
 
 function buyItem(p, itemId, count) {
   const def = C.ITEMS[itemId];
   if (!def || !def.price) throw new GameError('坊市无此物');
   count = Math.max(1, Math.min(20, count | 0 || 1));
-  const cost = def.price * count;
-  if (p.stones < cost) throw new GameError(`灵石不足（需 ${cost}）`);
+  // C1 每日限购（防套利刷爆）
+  const d = JSON.parse(p.daily);
+  if (d.day !== today()) p.daily = JSON.stringify({ day: today(), kills: 0, meditate: false, demon: false });
+  const dd = JSON.parse(p.daily);
+  dd.purchase = dd.purchase || {};
+  const bought = dd.purchase[itemId] || 0;
+  if (bought + count > 10) throw new GameError(`今日「${def.name}」限购 10 件（已购 ${bought}）`);
+  const unit = Math.ceil(def.price * priceMul(itemId));
+  const cost = unit * count;
+  if (p.stones < cost) throw new GameError(`灵石不足（需 ${cost}，今日单价 ×${priceMul(itemId).toFixed(2)}）`);
   p.stones -= cost;
+  dd.purchase[itemId] = bought + count;
+  p.daily = JSON.stringify(dd);
   const row = q.getItem.get(p.user_id, itemId);
   q.upsertItem.run(p.user_id, itemId, (row ? row.qty : 0) + count);
-  log(p.user_id, 'system', `购得 ${def.name} ×${count}，花费灵石 ${cost}。`);
+  log(p.user_id, 'system', `购得 ${def.name} ×${count}（今日单价 ×${priceMul(itemId).toFixed(2)}），花费灵石 ${cost}。`);
 }
 
 // ---------- 装备 ----------
@@ -464,6 +622,8 @@ function sectBuy(p, itemId) {
   const goods = C.SECT_SHOP[itemId];
   if (!goods) throw new GameError('宗门商铺无此物');
   if (!p.sect) throw new GameError('尚未加入宗门');
+  const lv = sectLv(p);
+  if (lv < (goods.lv || 1)) throw new GameError(`贡献等级不足（需 Lv${goods.lv}，当前 Lv${lv}）`);
   if (p.contrib < goods.contrib) throw new GameError(`贡献不足（需 ${goods.contrib}）`);
   p.contrib -= goods.contrib;
   if (goods.kind === 'item') {
@@ -525,7 +685,17 @@ function buildCatalog() {
     sects: C.SECTS,
     sectTasks: C.SECT_TASKS,
     sectShop: C.SECT_SHOP,
-    zones: C.ZONE_NAMES.flat().map((name, i) => ({ idx: i, name, tier: Math.floor(i / 2), req: Math.floor(i / 2) })),
+    sectLvThresholds: C.SECT_LV,
+    zones: C.ZONE_NAMES.flat().map((name, i) => ({
+      idx: i, name, tier: Math.floor(i / 2),
+      kind: i % 2 === 0 ? 'herb' : 'danger', kindName: (i % 2 === 0 ? C.ZONE_KINDS.herb : C.ZONE_KINDS.danger).name,
+    })).concat(C.HIDDEN_MAPS.map((h, i) => ({ idx: C.ZONE_NAMES.length * 2 + i, name: h.name, tier: -1, kind: 'hidden', kindName: '轮回秘境', req: h.req }))),
+    bosses: C.BOSSES,
+    monsters: C.MONSTER_NAMES,
+    achievements: C.ACHIEVEMENTS,
+    equipSeries: C.EQUIP_SERIES,
+    prices: Object.fromEntries(Object.keys(C.ITEMS).map((id) => [id, priceMul(id)])),
+    sellBase: SELL_BASE,
     tune: TUNE,
   };
 }
@@ -540,6 +710,9 @@ function buildState(userId, extra = {}) {
   const need = qiNeed(p.realm, p.layer);
   savePlayer(p);
   const daily = JSON.parse(p.daily);
+  const stFull = computeStats(p, equips, techs);
+  const dexList = q.dexGet.all(userId);
+  const bt = p.realm === REALMS.length - 1 && p.layer === 9;
   return {
     player: {
       name: p.name, realm: p.realm, layer: p.layer,
@@ -552,10 +725,15 @@ function buildState(userId, extra = {}) {
       contrib: p.contrib, dao: p.dao, rebirths: p.rebirths,
       technique: p.technique, sect: p.sect, btBonus: p.bt_bonus > 0,
       killsTotal: p.kills_total,
+      title: stFull.title || (p.sect ? '无名修士' : '散修'),
+      sectLv: stFull.sectLv || 1,
+      dexCount: dexList.length,
+      bossDone: daily.bossDay === today() && !!daily.bossDone,
       daily,
-      canRebirth: p.realm === REALMS.length - 1 && p.layer === 9,
+      canRebirth: bt,
       score: p.realm * 1e6 + p.layer * 1e3 + Math.floor(Math.min(1, p.qi / need) * 999),
     },
+    dex: dexList,
     inventory: q.getInventory.all(userId),
     offlineGain: Math.floor(tick.gain),
     notice: q.getNotice.get() || null,
@@ -576,8 +754,8 @@ function initPlayer(userId, name) {
 }
 
 module.exports = {
-  GameError, qiNeed, computeStats, applyTick, savePlayer, explore, resolveAdventure,
-  breakthrough, craft, useItem, sellItem, buyItem, equipItem, unequipItem,
-  equipTechnique, upgradeTechnique, joinSect, sectTask, sectBuy, rebirth,
+  GameError, qiNeed, computeStats, applyTick, savePlayer, explore, bossFight, resolveAdventure,
+  breakthrough, craft, useItem, sellItem, buyItem, equipItem, unequipItem, priceMul,
+  equipTechnique, upgradeTechnique, joinSect, sectTask, sectBuy, rebirth, sectLv,
   buildState, initPlayer, q,
 };

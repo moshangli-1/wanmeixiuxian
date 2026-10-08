@@ -80,12 +80,16 @@ async function handleApi(req, res, url) {
     return send(res, 200, engine.buildState(uid));
   }
   if (route === 'GET /api/leaderboard') {
-    const rows = q.topPlayers.all();
+    const rows = q.topPlayersFull.all();
     return send(res, 200, {
-      list: rows.map((r) => ({
-        name: r.name, realm: r.realm, layer: r.layer, dao: r.dao, rebirths: r.rebirths,
-        score: r.realm * 1e6 + r.layer * 1e3 + Math.floor(Math.min(1, r.qi / engine.qiNeed(r.realm, r.layer)) * 999),
-      })),
+      list: rows.map((r) => {
+        const ach = engine.achievementBonus(r);
+        return {
+          name: r.name, realm: r.realm, layer: r.layer, dao: r.dao, rebirths: r.rebirths,
+          title: ach.title || '无名修士',
+          score: r.realm * 1e6 + r.layer * 1e3 + Math.floor(Math.min(1, r.qi / engine.qiNeed(r.realm, r.layer)) * 999),
+        };
+      }),
     });
   }
   if (route === 'POST /api/action') {
@@ -96,6 +100,7 @@ async function handleApi(req, res, url) {
     try {
       switch (type) {
         case 'explore': result = engine.explore(p, payload.zone); break;
+        case 'boss': result = engine.bossFight(p); break;
         case 'breakthrough': result = engine.breakthrough(p); break;
         case 'adventure': result = { text: engine.resolveAdventure(p, payload.choice | 0) }; break;
         case 'craft': result = { lines: engine.craft(p, payload.recipe, payload.count) }; break;
