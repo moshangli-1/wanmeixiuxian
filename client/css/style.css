@@ -153,6 +153,17 @@ body.in-game #bg {
 .icon-btn:hover { border-color: var(--gold); box-shadow: 0 0 10px rgba(216, 180, 90, .3); }
 .icon-btn.on { background: rgba(216, 180, 90, .15); }
 
+/* ---------- 公告条 ---------- */
+#notice-bar {
+  margin: 8px 14px 0; padding: 8px 16px;
+  background: linear-gradient(90deg, rgba(216,180,90,.14), rgba(216,180,90,.05));
+  border: 1px solid rgba(216,180,90,.35); border-radius: 8px;
+  color: var(--gold-hi); font-size: 13px; letter-spacing: .08em;
+  display: flex; align-items: center; gap: 10px;
+}
+#notice-bar::before { content: '📢 公告'; flex-shrink: 0; color: var(--gold); font-size: 12px; letter-spacing: .2em; }
+#notice-bar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* ---------- 页签 ---------- */
 #tabs { display: flex; gap: 4px; padding: 8px 14px 0; overflow-x: auto; }
 .tab {

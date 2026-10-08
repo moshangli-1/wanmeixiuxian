@@ -6,11 +6,11 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const crypto = require('node:crypto');
 const { URL } = require('node:url');
 
 const auth = require('./lib/auth');
 const engine = require('./lib/engine');
+const admin = require('./lib/admin');
 const { queries: q, now } = require('./lib/db');
 
 const PORT = process.env.PORT || 3000;
@@ -58,36 +58,12 @@ async function handleApi(req, res, url) {
     if (!user || !auth.verifyPassword(password || '', user.salt, user.pass_hash)) {
       return send(res, 400, { error: '道号或密码有误' });
     }
+    if (user.banned) return send(res, 403, { error: '账号已被封禁，如有疑问请联系管理员' });
     return send(res, 200, { token: auth.signToken(user.id) });
   }
 
-  // ---- 管理接口（运营用，x-admin-key 鉴权，密钥在项目根 admin.key） ----
-  if (route === 'GET /api/admin/list' || route === 'POST /api/admin/delete') {
-    const keyFile = path.join(__dirname, '..', 'admin.key');
-    let expect = '';
-    try { expect = fs.readFileSync(keyFile, 'utf8').trim(); } catch {}
-    const got = (req.headers['x-admin-key'] || '').trim();
-    const okKey = expect.length > 0 && got.length === expect.length &&
-      crypto.timingSafeEqual(Buffer.from(got), Buffer.from(expect));
-    if (!okKey) return send(res, 403, { error: '管理密钥错误' });
-    if (route === 'GET /api/admin/list') {
-      const list = q.listAccounts.all();
-      return send(res, 200, { count: list.length, list });
-    }
-    // 删号：级联清理全部关联数据
-    const { name } = await readBody(req);
-    const user = q.getUserByName.get(String(name || ''));
-    if (!user) return send(res, 404, { error: '账号不存在' });
-    const uid = user.id;
-    q.delPlayer.run(uid);
-    q.delInventory.run(uid);
-    q.delTechniques.run(uid);
-    q.delEquips.run(uid);
-    q.delLogs.run(uid);
-    q.delEvents.run(uid);
-    q.delUser.run(uid);
-    return send(res, 200, { deleted: name, uid });
-  }
+  // ---- 管理接口（统一走 lib/admin.js，x-admin-key 鉴权） ----
+  if (await admin.handleAdmin(req, res, url, route, { send, readBody })) return;
 
   // ---- 以下接口需登录 ----
   // token 三通道：URL 参数 _t → Cookie → Authorization 头（平台反代会注入自己的身份令牌，故头排最低）
@@ -95,6 +71,10 @@ async function handleApi(req, res, url) {
   const data = auth.verifyToken(token);
   if (!data) return send(res, 401, { error: '请先登录' });
   const uid = data.uid;
+  { // 封禁账号即时生效（含已登录会话）
+    const u = q.getUserById.get(uid);
+    if (u && u.banned) return send(res, 403, { error: '账号已被封禁，如有疑问请联系管理员' });
+  }
 
   if (route === 'GET /api/state') {
     return send(res, 200, engine.buildState(uid));

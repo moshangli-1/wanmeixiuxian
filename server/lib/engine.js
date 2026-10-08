@@ -25,8 +25,18 @@ function log(userId, kind, text) {
   q.pruneLogs.run(userId, userId);
 }
 
+// ---------- 全服活动 buff（管理端可开关） ----------
+function getBuff() {
+  try {
+    const r = q.getSetting.get('buff');
+    const b = r ? JSON.parse(r.value) : null;
+    return { drop: Math.max(1, Number(b?.drop) || 1), rate: Math.max(1, Number(b?.rate) || 1) };
+  } catch { return { drop: 1, rate: 1 }; }
+}
+
 // ---------- 属性计算 ----------
 function computeStats(p, equips, techs) {
+  const buff = getBuff();
   const scale = Math.pow(TUNE.ATTR_MULT, p.realm) * (1 + TUNE.ATTR_LAYER * (p.layer - 1));
   const tech = techs.find((t) => t.tech_id === p.technique);
   const tDef = tech ? C.TECHNIQUES[tech.tech_id] : null;
@@ -41,7 +51,7 @@ function computeStats(p, equips, techs) {
     atk: Math.round(TUNE.BASE_ATK * scale * (1 + eff(tDef ? tDef.atk : 0)) * (1 + (sect?.bonus.atk || 0)) * (1 + 0.03 * p.dao) + eqAtk),
     def: Math.round(TUNE.BASE_DEF * scale + eqDef),
     hpMax: Math.round(TUNE.BASE_HP * scale * (1 + eff(tDef ? tDef.hp : 0)) + eqHp),
-    rate: TUNE.BASE_RATE * Math.pow(TUNE.REALM_RATE_MULT, p.realm) * (1 + eff(tDef ? tDef.rate : 0)) * (1 + (sect?.bonus.rate || 0)) * (1 + 0.05 * p.dao) + eqRate,
+    rate: TUNE.BASE_RATE * Math.pow(TUNE.REALM_RATE_MULT, p.realm) * (1 + eff(tDef ? tDef.rate : 0)) * (1 + (sect?.bonus.rate || 0)) * (1 + 0.05 * p.dao) * buff.rate + eqRate,
   };
 }
 
@@ -146,8 +156,9 @@ function explore(p) {
     stones += s; qig += g;
     lines.push(battleLine('good', `【${monster.name}】轰然倒地！灵石 +${s}，灵气 +${g}。`));
     // 掉落
-    for (const [id, rate] of [['lingcao', 0.30], ['kuangshi', 0.22], ['yaodan', 0.12], ['pojingdan', 0.02]]) {
-      if (Math.random() < rate * (1 + dropBoost)) {
+  const buff = getBuff();
+  for (const [id, rate] of [['lingcao', 0.30], ['kuangshi', 0.22], ['yaodan', 0.12], ['pojingdan', 0.02]]) {
+    if (Math.random() < rate * (1 + dropBoost) * buff.drop) {
         drops[id] = (drops[id] || 0) + 1;
         lines.push(battleLine('good', `拾获 ${C.ITEMS[id].name} ×1。`));
       }
@@ -547,6 +558,7 @@ function buildState(userId, extra = {}) {
     },
     inventory: q.getInventory.all(userId),
     offlineGain: Math.floor(tick.gain),
+    notice: q.getNotice.get() || null,
     techniques: techs,
     equips,
     adventure: p.adv ? C.ADVENTURES.find((a) => a.id === p.adv) : null,

@@ -77,7 +77,25 @@ CREATE TABLE IF NOT EXISTS events (
   type TEXT NOT NULL,
   data TEXT NOT NULL DEFAULT '{}'
 );
+CREATE TABLE IF NOT EXISTS notice (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  text TEXT NOT NULL,
+  ts INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS admin_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts INTEGER NOT NULL,
+  action TEXT NOT NULL,
+  detail TEXT NOT NULL DEFAULT ''
+);
 `);
+
+// 旧库迁移：users 补 banned 列（已存在则忽略）
+try { db.exec('ALTER TABLE users ADD COLUMN banned INTEGER NOT NULL DEFAULT 0'); } catch (e) { /* 已存在 */ }
 
 const now = () => Date.now();
 
@@ -112,8 +130,8 @@ const queries = {
     (SELECT id FROM logs WHERE user_id = ? ORDER BY id DESC LIMIT 200)`),
   addEvent: db.prepare('INSERT INTO events (user_id, ts, type, data) VALUES (?,?,?,?)'),
   // ---- 管理端 ----
-  listAccounts: db.prepare(`SELECT p.user_id, p.name, p.realm, p.layer, p.dao, p.rebirths, p.created_at
-    FROM players p ORDER BY p.created_at DESC LIMIT 200`),
+  listAccounts: db.prepare(`SELECT p.user_id, p.name, p.realm, p.layer, p.dao, p.rebirths, p.created_at,
+    u.banned FROM players p JOIN users u ON u.id = p.user_id ORDER BY p.created_at DESC LIMIT 200`),
   delPlayer: db.prepare('DELETE FROM players WHERE user_id = ?'),
   delInventory: db.prepare('DELETE FROM inventory WHERE user_id = ?'),
   delTechniques: db.prepare('DELETE FROM techniques WHERE user_id = ?'),
@@ -121,6 +139,31 @@ const queries = {
   delLogs: db.prepare('DELETE FROM logs WHERE user_id = ?'),
   delEvents: db.prepare('DELETE FROM events WHERE user_id = ?'),
   delUser: db.prepare('DELETE FROM users WHERE id = ?'),
+  getSetting: db.prepare('SELECT value FROM settings WHERE key = ?'),
+  setSetting: db.prepare(`INSERT INTO settings (key, value) VALUES (?,?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value`),
+  getNotice: db.prepare('SELECT text, ts FROM notice WHERE id = 1'),
+  setNotice: db.prepare(`INSERT INTO notice (id, text, ts) VALUES (1, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET text = excluded.text, ts = excluded.ts`),
+  delNotice: db.prepare('DELETE FROM notice WHERE id = 1'),
+  logAdmin: db.prepare('INSERT INTO admin_logs (ts, action, detail) VALUES (?,?,?)'),
+  listAdminLogs: db.prepare('SELECT ts, action, detail FROM admin_logs ORDER BY id DESC LIMIT 100'),
+  setBanned: db.prepare('UPDATE users SET banned = ? WHERE id = ?'),
+  setPassword: db.prepare('UPDATE users SET pass_hash = ?, salt = ? WHERE id = ?'),
+  countUsers: db.prepare('SELECT COUNT(*) c FROM users'),
+  sumStones: db.prepare('SELECT COALESCE(SUM(stones),0) s FROM players'),
+  sumKills: db.prepare('SELECT COALESCE(SUM(kills_total),0) s FROM players'),
+  realmDist: db.prepare('SELECT realm, COUNT(*) c FROM players GROUP BY realm'),
+  listEventTypes: db.prepare('SELECT type, data FROM events LIMIT 50000'),
+  allPlayersAdmin: db.prepare('SELECT user_id, name, realm, layer, qi, stones, contrib, dao, rebirths, kills_total, hp, technique, sect, created_at FROM players'),
+  allInventoryAdmin: db.prepare('SELECT * FROM inventory'),
+  allTechniquesAdmin: db.prepare('SELECT * FROM techniques'),
+  allEquipsAdmin: db.prepare('SELECT * FROM equips'),
+  allUsersSafe: db.prepare('SELECT id, username, created_at, banned FROM users'),
+  allNotice: db.prepare('SELECT * FROM notice'),
+  allSettings: db.prepare('SELECT * FROM settings'),
+  addStones: db.prepare('UPDATE players SET stones = stones + ? WHERE user_id = ?'),
+  addQi: db.prepare('UPDATE players SET qi = qi + ? WHERE user_id = ?'),
   // ---- leaderboard ----
   topPlayers: db.prepare('SELECT name, realm, layer, qi, dao, rebirths FROM players ORDER BY realm DESC, layer DESC, qi DESC LIMIT 20'),
 };

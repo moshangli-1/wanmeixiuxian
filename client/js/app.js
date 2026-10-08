@@ -102,6 +102,9 @@ function renderAll() {
   $('#hud-realm').textContent = st.player.realmName;
   $('#hud-stones').textContent = fmt(st.player.stones);
   $('#hud-dao').textContent = st.player.dao > 0 ? `${st.player.dao}道韵` : st.player.dao;
+  const nb = $('#notice-bar');
+  if (st.notice && st.notice.text) { nb.innerHTML = `<span title="${esc(st.notice.text)}">${esc(st.notice.text)}</span>`; nb.hidden = false; }
+  else nb.hidden = true;
   renderCultivate(); renderCombat(); renderAlchemy(); renderBag(); renderTechnique(); renderSect();
   renderLogs(st.logs);
   renderAdventure(st.adventure);
